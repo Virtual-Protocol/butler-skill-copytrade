@@ -1,6 +1,6 @@
-"""bevo-copytrade duty — mirrors LEADER's spot buys, one trade per leader
+"""butler-copytrade duty — mirrors LEADER's spot buys, one trade per leader
 event, never twice. Sells are not mirrored in this version. See
-skills/bevo-copytrade/SKILL.md for the full procedure this code implements.
+skills/butler-copytrade/SKILL.md for the full procedure this code implements.
 """
 import json
 import os

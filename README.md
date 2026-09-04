@@ -1,4 +1,4 @@
-# bevo-copytrade
+# butler-copytrade
 
 Copy another member's buys once or as a standing duty, one trade per leader event, never twice.
 
@@ -11,10 +11,23 @@ it as a git submodule at a tagged commit; Butler containers clone that commit.
 - `duty.py` — the code stage a `bevo-automation create --from-skill` duty runs
 - `CHANGELOG.md` — one line per version; every change bumps `version` in SKILL.md and is tagged `vX.Y.Z`
 
-Validate before tagging (no Bevo account or container needed):
+## Validate before tagging
+
+No Butler account, container or registry checkout needed — the hub publishes its validator
+and replay harness as standalone files:
 
 ```bash
-git clone --depth 1 https://github.com/Virtual-Protocol/butler-skills /tmp/butler-skills
-python3 /tmp/butler-skills/scripts/validate.py --standalone .
-python3 /tmp/butler-skills/tests/replay.py --standalone . --fixture trade-activity-page
+curl -sSLO https://virtual-protocol.github.io/butler-skills/tools/validate.py
+curl -sSLO https://virtual-protocol.github.io/butler-skills/tools/replay.py
+python3 validate.py --standalone .
+python3 replay.py --standalone . --fixture trade-activity-page
+```
+
+`replay.py` downloads `stub_bevo.py` and any fixture it needs from the same site when they
+are not already next to it. Keep the downloaded files out of the commit.
+
+In CI the same two checks are a single step:
+
+```yaml
+- uses: Virtual-Protocol/butler-skills/.github/actions/validate@main
 ```
