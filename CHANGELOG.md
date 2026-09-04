@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- The frontmatter namespace key is `metadata.butler`, not `metadata.bevo`. No field inside
+  the block changed — only the key it hangs from. The published `index.json` is unaffected,
+  because the registry flattens the block into top-level fields before publishing it.
+- Requires a container image that reads `metadata.butler`; an older image reads the block as
+  empty and loses `dutyTemplate`, `params` and `modes`.
+
 ## 1.0.1
 
 - Renamed from `bevo-copytrade`; docs (validate with the hub's published standalone tools,
