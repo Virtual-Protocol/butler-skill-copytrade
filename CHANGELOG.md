@@ -1,5 +1,39 @@
 # Changelog
 
+## 3.0.0
+
+**Perps and tokenized stocks, each behind its own switch.** 2.0.0 mirrored spot
+only; a leader's longs and their AAPL buys went past unseen. Both are now
+copied when the owner asks for them, and only then.
+
+- `MIRROR_PERPS` (default false) mirrors leveraged opens and, critically,
+  CLOSES — including a stop or a liquidation the exchange forced. A close is
+  risk coming off, so it is never gated by `MIRROR_SELLS`, `MIN_LEADER_USD`,
+  `CHAIN_IDS` or a size knob: if the leader is out, the copy gets out.
+  `PERP_LEVERAGE` (0 = the leader's own) and `PERP_MAX_LEVERAGE` bound it.
+- `MIRROR_STOCKS` (default false) mirrors tokenized stock trades. The feed
+  carries no flag for a stock — it is a SWAP row naming a ticker and no address
+  — so the duty asks the catalog once per symbol and files the stock command
+  shape, never the swap shape a spot token takes.
+- `SIZING` on a perp sizes the POSITION (notional), never the margin. The
+  leader's own `usdValue` is notional too, so `leader_share` compares like with
+  like.
+- `CHAIN_IDS` is now explicitly spot-only. A perp has no chain and a stock's
+  chain belongs to its cash leg; filtering either on it silently dropped them.
+- Venue minimums are enforced before filing, not rounded up to: $2 spot,
+  $15 perp, $15 stock buy. `MIN_LEADER_USD` applies to spot, stocks and perp
+  opens alike — never to a close.
+- A leader's bare ticker that is not a tokenized stock you can trade is
+  SKIPPED, never guessed onto the spot rail: a bare-symbol swap resolves to
+  whatever token wears that ticker. A region that bars stocks looks identical
+  to "not a stock" here, and both end the same way.
+- Requires a server that publishes `reduceOnly` and `hlEvent` on the public
+  trade feed, and a container whose SDK has `TradeEvent.is_perp` / `is_close`
+  and `bevo.stock_buy` / `bevo.stock_sell` / `bevo.is_stock`. Without them a
+  perp close is indistinguishable from an open and MUST NOT be mirrored.
+
+# Changelog
+
 ## 2.0.0
 
 **Breaking: every money default is gone.** The old template shipped `$25` a copy,
