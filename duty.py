@@ -1,128 +1,87 @@
-"""butler-copytrade duty — mirrors LEADER's spot buys, one trade per leader
-event, never twice. Sells are not mirrored in this version. See
-skills/butler-copytrade/SKILL.md for the full procedure this code implements.
+"""butler-copytrade duty — mirrors LEADER's trades on the Virtuals rails, one
+trade per leader event, never twice. Every knob below is a word the owner
+actually said; nothing here has a money default of its own. See SKILL.md.
 """
 import json
 import os
 
 import bevo
 
-STATE_PATH = "state.json"
-MAX_SEEN = 2000
-NOTIFIED_MANUAL_PATH = "notified_manual.json"
-
-LEADER = os.environ.get("LEADER", "")
-COPY_USDC_PER_TRADE = float(os.environ.get("COPY_USDC_PER_TRADE", "25"))
-COPY_MAX_USDC = float(os.environ.get("COPY_MAX_USDC", "50"))
-COPY_RATIO = float(os.environ.get("COPY_RATIO", "0"))
-CHAIN_IDS = json.loads(os.environ.get("CHAIN_IDS", "[8453]"))
-
-
-def load_json(path: str, default):
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return default
-
-
-def save_json(path: str, data) -> None:
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f)
-    os.replace(tmp, path)
+# Every knob is read with .get(): `bevo-automation create` already refuses a
+# duty missing LEADER or SIZING, so a KeyError here could only ever fire in an
+# offline replay — and a duty that dies on import is a crash loop, not an error
+# message. An unusable config skips every event and says so in the log instead.
+LEADER = os.environ.get("LEADER") or ""
+# fixed = SIZE_USD per copy | cash_share = SHARE of the owner's cash, read at
+# trade time | leader_share = SHARE of what the leader just spent.
+SIZING = os.environ.get("SIZING") or "fixed"
+SIZE_USD = float(os.environ.get("SIZE_USD") or 0)
+SHARE = float(os.environ.get("SHARE") or 0)
+MAX_USD = float(os.environ.get("MAX_USD") or 0)
+# [] means "wherever the leader traded" — trade.asset already carries the chain.
+CHAIN_IDS = [int(c) for c in json.loads(os.environ.get("CHAIN_IDS") or "[]")]
+MIRROR_SELLS = str(os.environ.get("MIRROR_SELLS") or "false").lower() == "true"
+MIN_LEADER_USD = float(os.environ.get("MIN_LEADER_USD") or 0)
 
 
-def size_for(event: dict) -> float:
-    if COPY_RATIO > 0:
-        leader_usd = event.get("usdValue") or 0
-        size = float(leader_usd) * COPY_RATIO
+def size_for(trade):
+    """The USD to put into this copy, or 0 to skip it.
+
+    `cash_share` reads the LIVE wallet on every event — the owner said "a
+    share of my wallet", and a figure worked out when the duty was written is
+    a different promise by the second trade. `leader_share` is a share of what
+    the leader spent, which the event carries. `MAX_USD` caps all three, and
+    only when the owner named a ceiling."""
+    if SIZING == "cash_share":
+        balance = bevo.balance()
+        if not balance.available or not balance.cash_usd:
+            return 0.0
+        size = balance.cash_usd * SHARE
+    elif SIZING == "leader_share":
+        size = (trade.usd_value or 0.0) * SHARE
     else:
-        size = COPY_USDC_PER_TRADE
-    return min(size, COPY_MAX_USDC)
+        size = SIZE_USD
+    return min(size, MAX_USD) if MAX_USD else size
 
 
-class SeenSet:
-    """A bounded, insertion-ordered seen-set backed by a list on disk. A
-    plain Python set has no order, so trimming it with `[-MAX_SEEN:]` drops
-    arbitrary ids, not the oldest — this keeps the list as the order of
-    record and a parallel set only for O(1) membership checks."""
+def main():
+    for trade in bevo.trades():
+        # The trigger already scopes the feed to LEADER (SKILL.md, Duty
+        # procedure): a second owner check here would drop every event when
+        # the owner gave a wallet and the feed reports a principal id.
+        if trade.is_sell:
+            if not MIRROR_SELLS:
+                continue
+        elif not trade.is_buy:
+            continue  # a perp, or a row the feed could not classify
 
-    def __init__(self, path: str, key: str, max_len: int = MAX_SEEN):
-        self.path = path
-        self.key = key
-        self.max_len = max_len
-        data = load_json(path, {key: []})
-        self.items: list = list(data.get(key, []))
-        self.member = set(self.items)
-
-    def __contains__(self, item) -> bool:
-        return item in self.member
-
-    def add_and_save(self, item) -> None:
-        if item in self.member:
-            return
-        self.items.append(item)
-        self.member.add(item)
-        if len(self.items) > self.max_len:
-            dropped = self.items[: len(self.items) - self.max_len]
-            self.items = self.items[-self.max_len :]
-            self.member.difference_update(dropped)
-        save_json(self.path, {self.key: self.items})
-
-
-def main() -> None:
-    handled = SeenSet(STATE_PATH, "handled")
-    notified_manual = SeenSet(NOTIFIED_MANUAL_PATH, "ids")
-
-    for ev in bevo.events():
-        if ev.get("kind") != "trade":
+        if CHAIN_IDS and trade.chain_id not in CHAIN_IDS:
+            continue
+        if MIN_LEADER_USD and (trade.usd_value or 0.0) < MIN_LEADER_USD:
+            continue
+        if trade.asset.ref is None:
+            bevo.log(f"copytrade skip event={trade.id}: the feed named no token")
             continue
 
-        e = ev.get("event", {})
-        event_id = e.get("id")
-        if event_id is None or event_id in handled:
+        size = size_for(trade)
+        if size <= 0:
+            bevo.log(f"copytrade skip event={trade.id}: size 0 (LEADER={LEADER} SIZING={SIZING})")
             continue
 
-        if e.get("direction") != "buy":
-            handled.add_and_save(event_id)
-            continue
-
-        chain_id = e.get("chainId")
-        token_out = e.get("tokenOutAddress")
-        usd_value = e.get("usdValue")
-        if chain_id is None or token_out is None or usd_value is None:
-            handled.add_and_save(event_id)
-            continue
-
-        try:
-            chain_id_int = int(chain_id)
-        except (TypeError, ValueError):
-            handled.add_and_save(event_id)
-            continue
-
-        if chain_id_int not in CHAIN_IDS:
-            handled.add_and_save(event_id)
-            continue
-
-        amount = size_for(e)
-        key = f"copytrade:{bevo.SERVICE_ID}:{event_id}"
-
-        command = (
-            f"acp trade --token-in usdc --amount-in {amount} "
-            f"--token-out {token_out} --chain-out {chain_id_int} "
-            f"--idempotency-key {key}"
-        )
-        result = bevo.trade(command=command, idempotency_key=key)
-        status = result.get("status") if isinstance(result, dict) else None
-        bevo.log(f"copytrade event={event_id} status={status} key={key}")
-
-        if status == "manual_signing_required" and event_id not in notified_manual:
-            bevo.notify(f"Copied {LEADER}'s buy of {token_out} — approve it in Approvals.")
-            notified_manual.add_and_save(event_id)
-
-        # unknown_outcome and every other terminal status: never loop on it,
-        # just mark the event handled and move on.
-        handled.add_and_save(event_id)
+        # One key per LEADER EVENT, never a timestamp: the service pump can
+        # replay rows it already handed over after a restart, and the same key
+        # answers "already filed" instead of trading twice.
+        key = f"copytrade:{bevo.SERVICE_ID}:{trade.id}"
+        # trade.asset is the exact token on the exact chain the leader traded —
+        # its address verbatim plus the feed's own chain id. Never trade.token,
+        # which is a display name, and never a chain of our own.
+        if trade.is_sell:
+            result = bevo.sell(trade.asset, usd=size, idempotency_key=key)
+        else:
+            result = bevo.buy(trade.asset, usd=size, idempotency_key=key)
+        # No notify(): the server tells the owner about every duty trade — a
+        # receipt when it executes, an approval card when it asks.
+        bevo.log(f"copytrade event={trade.id} {trade.asset} {result.summary} key={key}")
 
 
 if __name__ == "__main__":
