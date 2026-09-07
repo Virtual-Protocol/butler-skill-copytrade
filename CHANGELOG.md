@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.1
+
+**Fixes a 3.0.0 regression that made the skill uninstallable in the US, Canada
+and Switzerland.** 3.0.0 declared `requires.gates: [canSwap, canPerp, canStock]`.
+A declared gate is an INSTALL requirement, not a list of what the skill can use:
+the hub refuses the install outright (422 `requirements_unmet`) when any one of
+them is false for that owner. A US owner is `canPerp:false, canStock:false`, so
+3.0.0 took away the spot copy-trading they had at 2.0.0.
+
+- `requires.gates` is back to `["canSwap"]`. Perps and stocks stay behind
+  `MIRROR_PERPS` / `MIRROR_STOCKS`, both default false, and a leg the owner's
+  region bars already refuses per-leg as a `TradeResult` — which is what the
+  "A perp or stock leg refused for a permission gate" row in Failure handling
+  was always describing. That row was unreachable while the gate blocked the
+  install.
+
 ## 3.0.0
 
 **Perps and tokenized stocks, each behind its own switch.** 2.0.0 mirrored spot
@@ -31,8 +47,6 @@ copied when the owner asks for them, and only then.
   trade feed, and a container whose SDK has `TradeEvent.is_perp` / `is_close`
   and `bevo.stock_buy` / `bevo.stock_sell` / `bevo.is_stock`. Without them a
   perp close is indistinguishable from an open and MUST NOT be mirrored.
-
-# Changelog
 
 ## 2.0.0
 
