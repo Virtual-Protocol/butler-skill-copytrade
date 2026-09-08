@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.1
+
+The fork paragraph said "add the knobs you need" without saying where. `merged_env`
+rejects any `env` key the skill never declared, so a forked duty whose new code reads a
+new knob is refused at create until that knob is a `params` entry in the fork's own
+frontmatter. Says so now.
+
 ## 3.1.0
 
 **A rule the knobs cannot express is a fork, not a dead end.** The skill told
