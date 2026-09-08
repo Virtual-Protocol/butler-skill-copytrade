@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.0
+
+**A rule the knobs cannot express is a fork, not a dead end.** The skill told
+Butler to "never hand-write the duty's code" and stopped there, so an owner who
+wanted anything outside the twelve knobs — a filter on the token, a second
+leader, a cap on total exposure — got told no. `bevo-hub fork` has always been
+the answer and the hub never overwrites a fork; the skill just never said so.
+
+- `## Customize` ends with the fork path: what to reach for it for, where the
+  seam is in `duty.py`, and the reads a forked condition would use.
+- Duty step 5 keeps "do not hand-write this duty" but now points at the fork
+  instead of dead-ending, and drops the `@3.0.0` pin — it was already a version
+  behind at 3.0.1, and a pin cannot name a fork.
+
 ## 3.0.1
 
 **Fixes a 3.0.0 regression that made the skill uninstallable in the US, Canada
