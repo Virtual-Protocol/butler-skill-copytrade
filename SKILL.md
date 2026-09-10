@@ -1,7 +1,7 @@
 ---
 name: butler-copytrade
 description: Copy, mirror or follow another member's trades — spot, tokenized stocks and perps, once or as a standing duty sized from your owner's own words.
-version: 3.1.1
+version: 4.0.0
 metadata: {"openclaw":{"emoji":"🪞","requires":{"bins":["acp","bevo-read","bevo-automation"]}},"butler":{"tier":"on-demand","modes":["one-off","duty"],"moneyMoving":true,"keywords":["copy trade","copy trading","copy buys","mirror wallet","mirror trades","follow trader","follow wallet","copy perps","mirror perps","copy stocks"],"requires":{"routes":["GET /butler-read/user","GET /butler-read/trade-activity","GET /butler-read/user-assets","GET /butler-read/token-search","POST /butler-exec/trade","POST /butler-exec/services"],"features":["tradeIdempotency","execRequestStatus"],"gates":["canSwap"],"bins":["acp","bevo-read","bevo-automation"]},"params":[{"name":"LEADER","type":"principalId|wallet","required":true,"ask":"who should I copy?"},{"name":"SIZING","type":"enum","values":["fixed","cash_share","leader_share"],"required":true,"ask":"how much per copy — a fixed dollar figure, a share of your own cash, or a share of what they trade?"},{"name":"SIZE_USD","type":"usd","min":2,"max":10000,"help":"dollars per copy (SIZING=fixed)"},{"name":"SHARE","type":"number","min":0,"max":1,"help":"fraction for cash/leader share sizing (0.2 = 20%)"},{"name":"MAX_USD","type":"usd","min":2,"max":100000,"help":"per-trade ceiling"},{"name":"CHAIN_IDS","type":"chainIds","default":[],"help":"empty = the leader's chain; set only when specified. Spot only"},{"name":"MIRROR_SELLS","type":"bool","default":false,"help":"copy spot and stock sells too"},{"name":"MIN_LEADER_USD","type":"usd","default":0,"min":0,"max":100000,"help":"ignore trades smaller than this; never applied to a perp close"},{"name":"MIRROR_PERPS","type":"bool","default":false,"help":"copy their leveraged positions too"},{"name":"MIRROR_STOCKS","type":"bool","default":false,"help":"copy their tokenized stock trades too"},{"name":"PERP_LEVERAGE","type":"number","default":0,"min":0,"max":50,"help":"fixed leverage to open at; 0 = take the leader's own"},{"name":"PERP_MAX_LEVERAGE","type":"number","default":0,"min":0,"max":50,"help":"leverage ceiling; 0 = no ceiling"}],"dutyTemplate":"duty.py"}}
 ---
 
@@ -126,11 +126,14 @@ cards, the same pocket. Tell your owner what you changed and why.
    ```
 
    A tokenized stock takes the ticker with no `--side`; a sell is share-denominated
-   and needs the chain and count from your owner's own holding, floored:
+   and needs the venue and count from your owner's own holding, floored. `--chain`
+   on a stock is the VENUE NAME (`eth` | `sol`) off that holding's own `chain`
+   field, NEVER a chain id — a numeric one reroutes the order onto a bare-symbol
+   spot swap, which is a different asset:
 
    ```bash
    acp trade --token <TICKER> --amount-usdc <usd> --idempotency-key copytrade:chat:<eventId>
-   acp trade --token <TICKER> --amount-shares <n> --chain <chain> --idempotency-key copytrade:chat:<eventId>
+   acp trade --token <TICKER> --amount-shares <n> --chain <venue> --idempotency-key copytrade:chat:<eventId>
    ```
 
 7. [FIXED] On `accepted` or `manual_signing_required`, stop and report; on
@@ -180,7 +183,7 @@ uncertainty: `bevo-read request <key>` first — do not re-run.
 | Leader traded a bare ticker that is not a stock you can trade | Skipped, never guessed onto the spot rail — a bare-symbol swap resolves to whatever token wears that ticker. A region that bars stocks looks the same here. |
 | A perp or stock leg refused for a permission gate | That product is not available to this owner; offer the spot mode and leave the switch off. |
 | Copy size under a venue minimum ($2 spot, $15 perp, $15 stock buy) | Not filed. Say the minimum rather than rounding their size up to it. |
-| Closing a perp the owner never opened | A no-op, not an error — the close refuses and the duty moves on. |
+| Closing a perp the owner never opened | A no-op, not an error — the duty skips it and moves on. |
 | `accepted` | Done — report product, token and size. |
 | `manual_signing_required` | The card is already in Approvals; say so once, do not poll. |
 
