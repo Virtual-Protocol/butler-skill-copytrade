@@ -1,5 +1,74 @@
 # Changelog
 
+## 4.0.0
+
+**Breaking: the SDK's money verbs are gone.** `bevo.buy`/`sell`/`long`/`short`/
+`close`/`stock_buy`/`stock_sell` were each a one-line rewrite of an `acp trade`
+CLI string that hid the grammar and drifted from it; `bevo.trade(command=…)` is
+now the ONE money rail. `duty.py` builds every `acp trade` command directly —
+spot buy/sell, perp open/close and both tokenized-stock shapes — and does the
+sizing arithmetic the verbs used to do (sell/close quantities, prices, holding
+and position lookups) itself, off a single
+`bevo.read("/user-assets", {"fresh": 1})` per leg.
+
+Every knob, gate, idempotency key, venue minimum and the never-guess-a-bare-ticker
+rule are unchanged. The commands are flag-for-flag what the verbs emitted. But
+the arithmetic AROUND them moved into the duty, and three things it used to
+inherit from the SDK are genuinely different:
+
+- **A spot sell now refuses when nothing is held, and never sells more than the
+  holding.** `bevo.sell(usd=)` sized purely off a price — dollars ÷ price, with
+  no holdings read at all — so a mirrored sell of a token the owner did not own
+  (or owned less of than the leader's size) went to the server to be refused
+  there, or filled short. The duty reads the holding first, skips the leg when
+  there is none, and caps the quantity at what is actually held. A stock sell
+  already behaved this way (`stock_sell` refused `NOT_HELD` and capped at the
+  share count); a spot sell now matches it.
+- **The price source changed.** The verbs priced through
+  `/butler-read/token-price` (CoinGecko's canonical listing, 10 s cache) and
+  fell back to `token-search`. The duty prices off the holding row it just read
+  — that row's own `usdPrice`, or a stock row's `usdPerShare`, or that same
+  row's `usdValueUsd / shares` — and only then asks `token-search`, by address
+  and then by symbol. Same intent, different numbers at the margin: an
+  illiquid token can quote differently on the portfolio row than on the
+  canonical listing, so a sell's share count can differ slightly from what
+  3.x would have computed for the same event.
+- **An out-of-range leverage clamps instead of refusing.** `bevo.long`/`short`
+  answered `LEVERAGE_OUT_OF_RANGE` and filed nothing outside 1–50x. The duty
+  clamps into that range and logs the clamp, so a leader's 100x is copied at
+  the ceiling rather than dropped.
+
+Also better, not just different: the sizing read is one snapshot per leg rather
+than a lookup per question (`sell` priced and read holdings separately, `close`
+made its own `/user-assets` call), and that read carries `fresh=1` explicitly in
+the duty's own code — the flag every removed verb passed, and the one thing a
+hand-rolled wallet read must not drop, since the server's portfolio cache can be
+ten minutes stale and would size a burst's second leg off the balance from
+before its first.
+
+### Migration — existing duties must be re-created
+
+**A version bump does not migrate a duty already in the field.** A filed duty
+stores its own snapshot of `duty.py` at create time, and the supervisor
+materializes that stored copy beside the container's CURRENT `bevo.py` on every
+run (`api/bevo_duty/code/supervisor.py`, `_materialize`). So an existing
+copytrade duty keeps running its 3.x code — the code that calls `bevo.buy` /
+`sell` / `long` / `short` / `close` / `stock_buy` / `stock_sell` — against an
+SDK where those names no longer exist, and every leg dies on `AttributeError`.
+Installing or updating this skill changes nothing about it.
+
+Every copytrade duty created before 4.0.0 must be **deleted and re-created**
+from this version. There is no in-place fix and no automatic migration.
+
+### Container requirement — the other way round from 3.x
+
+4.0.0's `duty.py` uses only `bevo.trades`, `bevo.read`, `bevo.trade`,
+`bevo.is_stock`, `bevo.balance`, `bevo.log`, `bevo.BevoError` and
+`bevo.SERVICE_ID`, all of which predate the verb removal — so it runs on ANY
+container, before or after the SDK drops them. The constraint runs the other
+way: a duty FILED from 3.x breaks the moment its container's SDK drops the
+verbs, which is what the Migration note above is about.
+
 ## 3.1.1
 
 The fork paragraph said "add the knobs you need" without saying where. `merged_env`
