@@ -3,13 +3,11 @@ trade per leader event, never twice. Spot swaps, tokenized stocks and perps.
 Every knob below is a word the owner actually said; nothing here has a money
 default of its own. See SKILL.md.
 
-The SDK's money verbs (`bevo.buy`/`sell`/`long`/`short`/`close`/`stock_buy`/
-`stock_sell`) are gone — each was a one-line rewrite of an `acp trade` string
-that hid the grammar and drifted from it. `bevo.trade(command=…)` is the ONE
-money rail now, so every leg below builds its own `acp trade` command and does
-the sizing arithmetic the verbs used to do (quantities, prices, holdings) by
-hand, off `bevo.read("/user-assets", {"fresh": 1})` — the `fresh` flag included,
-which every removed verb carried and which a hand-rolled read must not drop.
+Every leg builds its own `acp trade` command and files it with
+`bevo.trade(command=…, idempotency_key=…)`, sizing off
+`bevo.read("/user-assets", {"fresh": 1})`. Never drop that `fresh` flag: without
+it the server may answer from cache with a PRE-trade balance for up to ten
+minutes, and a burst of leader events sizes each leg off the one before it.
 """
 import json
 import math
@@ -117,11 +115,10 @@ def leverage_for(trade):
     THEIR balance — an owner who did not say a number gets it verbatim, which
     is why the skill asks.
 
-    The venue takes 1–50x and nothing else. The old `bevo.long`/`short` refused
-    an out-of-range figure outright (`LEVERAGE_OUT_OF_RANGE`) before building a
-    command; a leader's 100x is a copy worth filing at the ceiling rather than
-    dropping, so it clamps — but never silently, or the owner reads "60x" in
-    the leader's feed and 50x in their own fills with nothing joining them."""
+    The venue takes 1–50x and nothing else. A leader's 100x is a copy worth
+    filing at the ceiling rather than dropping, so it clamps — but never
+    silently, or the owner reads "60x" in the leader's feed and 50x in their
+    own fills with nothing joining them."""
     lev = PERP_LEVERAGE or (trade.leverage or 1)
     if PERP_MAX_LEVERAGE:
         lev = min(lev, PERP_MAX_LEVERAGE)
@@ -220,8 +217,8 @@ def search_price(query, address=None, symbol=None):
 
 
 def spot_price(ref, row, symbol=None):
-    """The live price for `ref`, in the order the removed `bevo.sell` used:
-    the holding's own `usdPrice`, then a `/token-search` quote matched on the
+    """The live price for `ref`, in order: the holding's own `usdPrice`,
+    then a `/token-search` quote matched on the
     ADDRESS, then the same quote asked for the SYMBOL.
 
     Each step FALLS THROUGH on a falsy price rather than returning None — a row
@@ -283,8 +280,8 @@ def stock_holding(assets, ticker):
 
 
 def stock_price(row, ticker):
-    """What one share of `ticker` is worth, in the order the removed
-    `bevo.stock_sell` used: the holding's own `usdPerShare`, then the SAME
+    """What one share of `ticker` is worth, in order: the holding's own
+    `usdPerShare`, then the SAME
     row's `usdValueUsd / shares` — a row that carries a value and a share count
     prices itself and needs no round trip — then a live quote.
 
