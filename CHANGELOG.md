@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.1
+
+**Trimmed to just enough context.** SKILL.md 14,234 -> 11,370 chars (-20.1%), README
+2,820 -> 2,343. Explanation only: every knob, gate and command shape is unchanged, and
+the hub replay produces byte-identical commands for all seven legs.
+
+- duty.py's docstrings no longer narrate which SDK function each fallback chain "used
+  to" be. Naming a removed rail re-teaches it; each rule now stands on its own.
+- The one-off and duty procedures no longer restate each other's gates.
+
 ## 4.0.0
 
 **Breaking: the SDK's money verbs are gone.** `bevo.buy`/`sell`/`long`/`short`/
