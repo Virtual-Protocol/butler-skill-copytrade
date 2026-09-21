@@ -1,5 +1,31 @@
 # Changelog
 
+## 6.0.0
+
+**Daily caps, counted from the duty's own log.** Every leg is now written to the
+log through `bevo.log()` as `requested <UTC time> key=<idempotency key> route=<leg>
+usd=<value>` *before* its `acp trade` runs, and two new settings are counted from
+those lines per UTC day:
+
+- `MAX_PER_DAY` (default `20`) — opening legs: spot buys, stock buys, perp opens.
+- `MAX_USD_PER_DAY` (unset by default) — dollars put into those legs. A buy that
+  would cross it is trimmed to what is left, the way `MAX_USD` trims one leg.
+
+The dollar value on each line is the duty's own figure — a buy's size, a perp open's
+margin (its notional over the leverage it is placed at), a sell's amount at the
+holding's price, a close's position value — never the server's. A perp that would
+cross the dollar cap is trimmed until its margin fits. Exits (spot and stock sells, perp closes) are recorded with their value
+but never capped. A leader event redelivered after a restart is re-sent under its
+original key and not counted twice; a leg refused by the rail still counts. When the
+rotated log (`duty.log.1`) starts after midnight UTC, today's earliest lines may be
+gone, so opening legs are skipped rather than counted low.
+
+Every other log line is flattened onto one line first: a leader's token symbol is
+untrusted text, and a newline inside it must not be able to write a ledger entry.
+
+`recipe.json` goes to version 6 and supersedes `copytrade@5`. A duty already filed
+keeps its stored code; re-file it to pick this up.
+
 ## 5.0.0
 
 **Breaking: this became a duty template bundle, not a skill.** The repo root

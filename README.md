@@ -24,6 +24,10 @@ make is gated, sized against the owner's own wallet, and placed as its own keyed
 - **Exceed `MAX_USD` per trade**, when one is set — except on a perp close, which is
   deliberately unclamped: a close trimmed to a ceiling leaves a residual position,
   which is worse than not closing.
+- **Exceed its daily caps.** Each leg is logged with its dollar value *before* it is
+  sent, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` count today's (UTC) lines, so a restart
+  resets nothing. Only opening legs count, trimmed to the dollars left; exits are
+  never capped. If the log no longer reaches back to midnight, buys are skipped.
 - **Copy the owner's own trades.** Their own activity never arms a leg.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every leg becomes an approval card.
@@ -36,6 +40,8 @@ make is gated, sized against the owner's own wallet, and placed as its own keyed
 | `SIZE_USD` | US dollars per copy | — | used when `SIZING` is `fixed`; minimum 2 |
 | `SHARE` | fraction 0–1 | — | used by `cash_share` / `leader_share`. `0.2` is 20% |
 | `MAX_USD` | US dollars | unset | per-trade ceiling. Set only when the owner named one |
+| `MAX_PER_DAY` | opening trades a day | `20` | buys and perp opens (UTC day) |
+| `MAX_USD_PER_DAY` | US dollars a day | unset | into opening trades, a perp at its margin. Set only when named |
 | `CHAIN_IDS` | chain ids | `[]` | empty means the leader's own chain. Set only when they named chains |
 | `MIN_LEADER_USD` | US dollars | `0` | ignore the leader's trades smaller than this |
 | `MIRROR_SELLS` | on/off | **off** | also follow spot sells |

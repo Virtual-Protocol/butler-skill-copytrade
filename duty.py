@@ -11,10 +11,16 @@ row did not name, or touch a rail whose switch is off. Every skip is a line
 in this duty's log with its reason, and each burst of trades produces at most
 one quiet note.
 
+The log is also the duty's ledger. Every leg is written down as a `requested`
+line, with its dollar value, BEFORE it is sent, and the daily caps are counted
+from those lines: `MAX_PER_DAY` opening legs and `MAX_USD_PER_DAY` dollars put
+into them per UTC day, a perp at its margin. Exits are recorded but never
+capped.
+
 Settings: SIZING (fixed | cash_share | leader_share) with SIZE_USD or SHARE,
-MAX_USD as a per-trade ceiling, CHAIN_IDS to pin the chains, MIN_LEADER_USD to
-ignore small moves, and the MIRROR_SELLS / MIRROR_PERPS / MIRROR_STOCKS
-switches.
+MAX_USD as a per-trade ceiling, MAX_PER_DAY / MAX_USD_PER_DAY as daily ones,
+CHAIN_IDS to pin the chains, MIN_LEADER_USD to ignore small moves, and the
+MIRROR_SELLS / MIRROR_PERPS / MIRROR_STOCKS switches.
 """
 
 import bevo
@@ -23,6 +29,7 @@ import math
 import os
 import re
 import subprocess
+import time
 
 PARAMS = json.loads(os.environ.get("PARAMS", "{}"))
 
@@ -30,6 +37,10 @@ SIZING = PARAMS.get("SIZING", "fixed")
 SIZE_USD = PARAMS.get("SIZE_USD")
 SHARE = PARAMS.get("SHARE")
 MAX_USD = PARAMS.get("MAX_USD") or 0
+# A lost key must cap MORE, not less: the count falls back to its default,
+# and the dollar ceiling is simply off when it was never set.
+MAX_PER_DAY = PARAMS.get("MAX_PER_DAY") or 20
+MAX_USD_PER_DAY = PARAMS.get("MAX_USD_PER_DAY") or 0
 CHAIN_IDS = [int(c) for c in (PARAMS.get("CHAIN_IDS") or [])]
 MIN_LEADER = PARAMS.get("MIN_LEADER_USD") or 0
 # Widening switches are read with an explicit `False` default and never with
@@ -55,6 +66,127 @@ LEVERAGE_MIN, LEVERAGE_MAX = 1, 50
 
 EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+#: The legs that put money INTO a position, and so count against the daily
+#: caps. An exit is never capped: a cap that strands the owner in a position
+#: the leader has left is worse than the trade it saves.
+CAPPED = ("spot-buy", "stock-buy", "perp-open")
+
+
+# ── the ledger: what this duty has asked for, from its own log ───────────────
+
+#: The supervisor appends every line this program prints to `duty.log` in its
+#: working directory, and renames it to `duty.log.1` once it passes 1 MB (one
+#: generation kept). Oldest first.
+LOG_FILES = ("duty.log.1", "duty.log")
+
+#: A ledger line, only ever written by `record()`. Anchored at the start of
+#: the line (after the supervisor's stamp, when the line got one), which is
+#: why `say()` keeps every other line on one line.
+REQUESTED = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?requested (\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}Z"
+    r" key=(\S+) route=(\S+) usd=(\d+(?:\.\d+)?)\s*$"
+)
+
+#: The supervisor's stamp at the start of a log line.
+LOG_STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T")
+
+#: Legs this process has requested: {key: (utc day, route, usd)}. The
+#: supervisor writes a line down a moment after it is printed; this covers
+#: that moment.
+SENT = {}
+
+
+def say(text):
+    """`bevo.log()`, flattened onto one line.
+
+    A leader's token symbol or an error the rail echoed is untrusted text,
+    and a newline inside it would start a line of its own — one that could
+    read as a ledger entry. Only `record()` may begin a line with
+    `requested`.
+    """
+    bevo.log(" ".join(str(text).split()))
+
+
+def utc_day(now=None):
+    return time.strftime("%Y-%m-%d", now or time.gmtime())
+
+
+def requested(today):
+    """Every leg the log says was requested: {key: (utc day, route, usd)}.
+
+    A key is counted on the day it was FIRST requested; the same key sent
+    again later is a replay, not a second leg. None when the log cannot vouch
+    for the whole of `today`: the rotated file starts today, so today's
+    earliest lines may have been rotated out of both files.
+    """
+    ledger = {}
+    for name in LOG_FILES:
+        try:
+            with open(name, encoding="utf-8", errors="replace") as handle:
+                for number, line in enumerate(handle):
+                    if number == 0 and name == LOG_FILES[0]:
+                        stamp = LOG_STAMP.match(line)
+                        if stamp is None or stamp.group(1) >= today:
+                            return None
+                    match = REQUESTED.match(line)
+                    if match:
+                        day, key, route, usd = match.groups()
+                        ledger.setdefault(key, (day, route, float(usd)))
+        except OSError:
+            continue
+    for key, row in SENT.items():
+        ledger.setdefault(key, row)
+    return ledger
+
+
+def room(key):
+    """The dollars an opening leg may still put in today. Returns (usd, why).
+
+    `usd` is None when no dollar ceiling applies; `why` is the reason the leg
+    may not be requested at all. A key already in the ledger is a redelivery
+    of a leg already counted, so it gets through under its own key and is
+    not counted twice.
+    """
+    today = utc_day()
+    ledger = requested(today)
+    if ledger is None:
+        return None, (
+            "the log no longer reaches back to the start of today, so the daily "
+            "caps cannot be counted"
+        )
+    if key in ledger:
+        return None, None
+    legs = [row for row in ledger.values() if row[0] == today and row[1] in CAPPED]
+    if len(legs) >= MAX_PER_DAY:
+        return None, "%d opening trades today, the MAX_PER_DAY cap" % MAX_PER_DAY
+    if MAX_USD_PER_DAY <= 0:
+        return None, None
+    left = MAX_USD_PER_DAY - sum(row[2] for row in legs)
+    if left <= 0:
+        return None, "$%s put in today, the MAX_USD_PER_DAY cap" % fmt(MAX_USD_PER_DAY)
+    return left, None
+
+
+def record(key, route, usd):
+    """Write the leg down BEFORE it is sent. Returns why it may not be, or None.
+
+    The other order double-spends whenever the container dies between the
+    rail answering and the line being written, so a refused leg still
+    counts. A key or a value the ledger could not read back is refused here
+    rather than sent uncounted.
+    """
+    if not re.fullmatch(r"\S+", key):
+        return "the idempotency key %r could not be written to the ledger" % key
+    if not (math.isfinite(usd) and usd >= 0):
+        return "the leg's dollar value could not be worked out"
+    now = time.gmtime()
+    SENT.setdefault(key, (utc_day(now), route, float(fmt(usd))))
+    bevo.log(
+        "requested %s key=%s route=%s usd=%s"
+        % (time.strftime("%Y-%m-%dT%H:%M:%SZ", now), key, route, fmt(usd))
+    )
+    return None
 
 
 # ── running `acp trade` ──────────────────────────────────────────────────────
@@ -102,8 +234,13 @@ def answer_of(text):
     return value if isinstance(value, dict) else None
 
 
-def filed(args, key, sentence):
-    """Run one `acp trade` and read what it answered. Returns (ok, summary).
+def filed(args, key, sentence, route, usd):
+    """Record one leg, run its `acp trade`, and read what it answered.
+
+    Returns (ok, summary). `usd` is the leg's dollar value as this duty
+    worked it out — a buy's size, a perp open's margin, a sell's amount at
+    the holding's price, a close's notional — and is what the ledger line
+    carries. Only the opening legs' values are counted.
 
     `--idempotency-key` is written out literally as the last pair of the argv:
     that is what makes the same leader event redelivered after a restart the
@@ -114,6 +251,9 @@ def filed(args, key, sentence):
     may have landed. `bevo.exec_status(key)` is the one way to find out, and
     re-running with a NEW key is how one trade becomes two.
     """
+    why = record(key, route, usd)
+    if why:
+        return refused(sentence, why)
     done = subprocess.run(
         ["acp", "trade", *args, "--idempotency-key", key],
         capture_output=True,
@@ -159,7 +299,7 @@ def spot_rows():
     try:
         body = bevo.read("/user-assets", {"fresh": 1})
     except bevo.BevoError as error:
-        bevo.log("holdings unavailable: %s" % error)
+        say("holdings unavailable: %s" % error)
         return None
     spot = (body or {}).get("spot") or {}
     if spot.get("available") is not True:
@@ -232,7 +372,7 @@ def spot_buy(ev, usd, key):
     args = ["--token-in", "usdc", "--amount-in", fmt(usd), "--token-out", ref]
     if ev.asset.chain_id is not None:
         args += ["--chain-out", str(ev.asset.chain_id)]
-    return filed(args, key, sentence)
+    return filed(args, key, sentence, "spot-buy", usd)
 
 
 def spot_sell(ev, usd, key):
@@ -261,32 +401,56 @@ def spot_sell(ev, usd, key):
     if held.chain_id is not None:
         args += ["--chain-in", str(held.chain_id)]
     args += ["--amount-in", fmt(amount), "--token-out", "usdc"]
-    return filed(args, key, sentence)
+    return filed(args, key, sentence, "spot-sell", amount * held.price_usd)
+
+
+def leverage_for(ev):
+    """The leverage a copied open is placed at. Returns (lev, asked, why).
+
+    `why` is set, and `lev` None, when the figure is not a number at all.
+    """
+    try:
+        asked = float(PERP_LEVERAGE or ev.leverage or 1)
+    except (TypeError, ValueError):
+        return None, None, "the leverage was not a number"
+    if not math.isfinite(asked):
+        return None, None, "the leverage was not a finite number"
+    ceiling = LEVERAGE_MAX
+    if PERP_MAX_LEVERAGE:
+        ceiling = min(ceiling, int(PERP_MAX_LEVERAGE))
+    return int(min(max(math.trunc(asked), LEVERAGE_MIN), ceiling)), asked, None
+
+
+def committed(ev, route, usd):
+    """The dollars an opening leg takes out of the owner's cash — what the
+    daily dollar cap counts. A buy's size; a perp's MARGIN, its notional
+    over the leverage it is placed at. A leverage that cannot be read
+    counts the whole notional, and the leg itself is then refused."""
+    if route == "perp-open":
+        lev, _, _ = leverage_for(ev)
+        if lev:
+            return usd / lev
+    return usd
 
 
 def perp_open(ev, usd, key):
+    """`usd` is NOTIONAL — what `--amount-usdc` means on the perp rail. The
+    ledger records the margin, which is what leaves the owner's cash."""
     ref = token_ref(ev.coin)
     side = "short" if ev.is_short else "long"
     sentence = "%s %s" % (side.capitalize(), ref)
     if usd < PERP_MIN_USD:
         return refused(sentence, "perps are $%s minimum, got $%s" % (fmt(PERP_MIN_USD), fmt(usd)))
-    try:
-        asked = float(PERP_LEVERAGE or ev.leverage or 1)
-    except (TypeError, ValueError):
-        return refused(sentence, "the leverage was not a number")
-    if not math.isfinite(asked):
-        return refused(sentence, "the leverage was not a finite number")
-    ceiling = LEVERAGE_MAX
-    if PERP_MAX_LEVERAGE:
-        ceiling = min(ceiling, int(PERP_MAX_LEVERAGE))
-    lev = int(min(max(math.trunc(asked), LEVERAGE_MIN), ceiling))
+    lev, asked, why = leverage_for(ev)
+    if why:
+        return refused(sentence, why)
     args = [
         "--side", side,
         "--token", ref,
         "--amount-usdc", fmt(usd),
         "--leverage", str(lev),
     ]
-    ok, summary = filed(args, key, sentence)
+    ok, summary = filed(args, key, sentence, "perp-open", committed(ev, "perp-open", usd))
     if lev != math.trunc(asked):
         # Said where the owner reads it, not only in the log: the clamp
         # changed the size of a position they are about to see a card for.
@@ -325,7 +489,7 @@ def perp_close(ev, key):
         "--amount-usdc", fmt(notional),
         "--reduce-only",
     ]
-    return filed(args, key, sentence)
+    return filed(args, key, sentence, "perp-close", notional)
 
 
 def stock_buy(ev, usd, key):
@@ -339,7 +503,8 @@ def stock_buy(ev, usd, key):
     if usd < STOCK_MIN_USD:
         return refused(sentence, "stock buys are $%s minimum, got $%s" % (fmt(STOCK_MIN_USD), fmt(usd)))
     ref = token_ref(raw)
-    return filed(["--token", ref, "--amount-usdc", fmt(usd)], key, "Buy %s" % ref)
+    args = ["--token", ref, "--amount-usdc", fmt(usd)]
+    return filed(args, key, "Buy %s" % ref, "stock-buy", usd)
 
 
 def stock_sell(ev, usd, key):
@@ -371,7 +536,7 @@ def stock_sell(ev, usd, key):
         # A numeric `--chain` is rerouted onto a bare-symbol spot swap.
         return refused(sentence, "no venue on the %s holding" % ref)
     args = ["--token", ref, "--amount-shares", fmt(shares), "--chain", str(held.venue)]
-    return filed(args, key, sentence)
+    return filed(args, key, sentence, "stock-sell", shares * price)
 
 
 # ── routing and sizing ───────────────────────────────────────────────────────
@@ -448,8 +613,8 @@ def size_for(ev):
     return usd, None
 
 
-def place(ev, route, usd):
-    """The leg itself. Keys are EXPLICIT and in the retired stage's formats.
+def key_for(ev, route):
+    """A leg's idempotency key. EXPLICIT, and in the retired stage's formats.
 
     Continuity, not style: bevo-server's ledger already holds keys minted as
     `copy:<duty>:trade:<event>` by the graph recipe these templates replace,
@@ -457,10 +622,13 @@ def place(ev, route, usd):
     replay it is. A spot buy and a spot sell of the same event share one key,
     exactly as they did.
     """
-    key = "copy:%s:%s:%s" % (bevo.SERVICE_ID, route, ev.id)
     if route in ("spot-buy", "spot-sell"):
-        key = "copy:%s:trade:%s" % (bevo.SERVICE_ID, ev.id)
+        return "copy:%s:trade:%s" % (bevo.SERVICE_ID, ev.id)
+    return "copy:%s:%s:%s" % (bevo.SERVICE_ID, route, ev.id)
 
+
+def place(ev, route, usd, key):
+    """The leg itself."""
     if route == "spot-buy":
         return spot_buy(ev, usd, key)
     if route == "spot-sell":
@@ -485,13 +653,13 @@ for batch in bevo.batches(seconds=3):
         ev = bevo.typed(raw)
         if not isinstance(ev, bevo.TradeEvent) or ev.id is None:
             skipped += 1
-            bevo.log("skipped: a row this duty copies nothing from")
+            say("skipped: a row this duty copies nothing from")
             continue
 
         route, reason = route_for(ev)
         if route is None:
             skipped += 1
-            bevo.log("skipped %s: %s" % (ev.id, reason))
+            say("skipped %s: %s" % (ev.id, reason))
             continue
 
         # A close is not sized — there is a position to flatten, whatever the
@@ -501,20 +669,35 @@ for batch in bevo.batches(seconds=3):
             usd, reason = size_for(ev)
             if usd <= 0:
                 skipped += 1
-                bevo.log("skipped %s: %s" % (ev.id, reason))
+                say("skipped %s: %s" % (ev.id, reason))
                 continue
 
-        result = place(ev, route, usd)
+        key = key_for(ev, route)
+        if route in CAPPED:
+            left, reason = room(key)
+            if reason:
+                skipped += 1
+                say("skipped %s: %s" % (ev.id, reason))
+                continue
+            # Trimmed to what is left of the day's dollars, the way MAX_USD
+            # trims a single leg — for a perp, trimmed until its MARGIN fits.
+            # A remainder under the rail's minimum is refused by the leg
+            # itself, with that reason.
+            cost = committed(ev, route, usd)
+            if left is not None and cost > left:
+                usd = usd * left / cost
+
+        result = place(ev, route, usd, key)
         if result is None:
             skipped += 1
-            bevo.log("skipped %s: the event named no side" % (ev.id,))
+            say("skipped %s: the event named no side" % (ev.id,))
             continue
         ok, summary = result
         if ok:
             told.append(summary)
         else:
             skipped += 1
-            bevo.log("skipped %s: %s" % (ev.id, summary))
+            say("skipped %s: %s" % (ev.id, summary))
 
     # One note per burst, and only when something actually happened. A duty
     # that notifies on every quiet batch is one the owner mutes, after which

@@ -1,10 +1,10 @@
 {
   "id": "copytrade",
-  "version": 5,
+  "version": 6,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": ["copy", "copytrade", "mirror", "follow", "leader", "trader", "wallet"],
   "triggers": ["trade"],
-  "supersedes": ["copytrade@3", "copytrade@4"],
+  "supersedes": ["copytrade@3", "copytrade@4", "copytrade@5"],
   "keys": [
     "copy:<duty>:trade:<eventId>",
     "copy:<duty>:perp-open:<eventId>",
@@ -38,6 +38,19 @@
         "minimum": 2,
         "maximum": 100000,
         "description": "per-trade ceiling; set only when the owner named one"
+      },
+      "MAX_PER_DAY": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 20,
+        "description": "at most this many opening trades (buys, perp opens) per UTC day; exits are never capped"
+      },
+      "MAX_USD_PER_DAY": {
+        "type": "number",
+        "minimum": 2,
+        "maximum": 1000000,
+        "description": "at most this many dollars into opening trades per UTC day (a perp counts its margin); set only when the owner named one"
       },
       "CHAIN_IDS": {
         "type": "array",
