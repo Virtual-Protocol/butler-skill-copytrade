@@ -11,8 +11,7 @@ make is gated, sized against the owner's own wallet, and placed as its own keyed
 | closed a perp, or was liquidated | closes the owner's position, in USD notional | `MIRROR_PERPS` is off |
 | bought or sold a tokenized stock | does the same, share-denominated | `MIRROR_STOCKS` is off |
 
-Out of the box it follows the leader in and out: `MIRROR_SELLS` is on by default,
-so an owner who says "copy them" gets both sides unless they turn buys-only on.
+Out of the box it follows the leader in and out — `MIRROR_SELLS` defaults on.
 
 ## What it will not do
 
@@ -25,9 +24,11 @@ so an owner who says "copy them" gets both sides unless they turn buys-only on.
   deliberately unclamped: a close trimmed to a ceiling leaves a residual position,
   which is worse than not closing.
 - **Exceed its daily caps.** Each leg is logged with its dollar value *before* it is
-  sent, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` count today's (UTC) lines, so a restart
-  resets nothing. Only opening legs count, trimmed to the dollars left; exits are
-  never capped. If the log no longer reaches back to midnight, buys are skipped.
+  sent, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` count today's (UTC) lines — a restart
+  changes nothing. Only opening legs count, trimmed to what's left; exits are never
+  capped. A leg refused before it runs — pocket used up, wallet short — releases its
+  line, so a top-up resumes same-day. If the log can't reach midnight, buys are
+  skipped.
 - **Copy the owner's own trades.** Their own activity never arms a leg.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every leg becomes an approval card.

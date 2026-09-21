@@ -75,6 +75,12 @@ SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 #: the leader has left is worse than the trade it saves.
 CAPPED = ("spot-buy", "stock-buy", "perp-open")
 
+#: bevo-server codes documented as DEFINITIVE and BEFORE-execution refusals —
+#: nothing sent, nothing reserved. Only these release a ledger entry: a 409
+#: (in flight), a timeout, or an unparseable answer may still have landed,
+#: and must keep counting toward the day's caps.
+RELEASED_BY = frozenset({"pocket_empty", "wallet_short"})
+
 
 # ── the ledger: what this duty has asked for, from its own log ───────────────
 
@@ -89,6 +95,13 @@ LOG_FILES = ("duty.log.1", "duty.log")
 REQUESTED = re.compile(
     r"^(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?requested (\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}Z"
     r" key=(\S+) route=(\S+) usd=(\d+(?:\.\d+)?)\s*$"
+)
+
+#: A release line, only ever written by `release()`. A key it names was
+#: refused by bevo-server BEFORE execution and reservation, so it no longer
+#: counts — until it is `requested` again, which happens on a retry.
+RELEASED = re.compile(
+    r"^(?:\d{4}-\d{2}-\d{2}T[\d:.]+Z )?released \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z key=(\S+)\s*$"
 )
 
 #: The supervisor's stamp at the start of a log line.
@@ -136,6 +149,10 @@ def requested(today):
                     if match:
                         day, key, route, usd = match.groups()
                         ledger.setdefault(key, (day, route, float(usd)))
+                        continue
+                    match = RELEASED.match(line)
+                    if match:
+                        ledger.pop(match.group(1), None)
         except OSError:
             continue
     for key, row in SENT.items():
@@ -190,6 +207,19 @@ def record(key, route, usd):
         % (time.strftime("%Y-%m-%dT%H:%M:%SZ", now), key, route, fmt(usd))
     )
     return None
+
+
+def release(key):
+    """Undo `record()`'s count for a leg bevo-server refused before it ran.
+
+    Only `release()` may begin a line with `released`, for the same reason
+    only `record()` may begin one with `requested`: the ledger reader trusts
+    the verb at the start of the line.
+    """
+    if not re.fullmatch(r"\S+", key):
+        return
+    SENT.pop(key, None)
+    bevo.log("released %s key=%s" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), key))
 
 
 # ── running `acp trade` ──────────────────────────────────────────────────────
@@ -281,6 +311,12 @@ def filed(args, key, sentence, route, usd):
         return False, (
             "%s — the server answered %r, which this container does not recognise. "
             "Do NOT report it as done." % (sentence, answer.get("status"))
+        )
+    if answer.get("status") == "refused" and answer.get("code") in RELEASED_BY:
+        release(key)
+        return False, (
+            "%s — refused: %s (not counted toward today's caps)"
+            % (sentence, answer.get("error") or answer.get("code"))
         )
     return False, "%s — refused: %s" % (sentence, answer.get("error") or answer.get("status"))
 

@@ -1,10 +1,10 @@
 {
   "id": "copytrade",
-  "version": 7,
+  "version": 8,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": ["copy", "copytrade", "mirror", "follow", "leader", "trader", "wallet"],
   "triggers": ["trade"],
-  "supersedes": ["copytrade@3", "copytrade@4", "copytrade@5", "copytrade@6"],
+  "supersedes": ["copytrade@3", "copytrade@4", "copytrade@5", "copytrade@6", "copytrade@7"],
   "keys": [
     "copy:<duty>:trade:<eventId>",
     "copy:<duty>:perp-open:<eventId>",
