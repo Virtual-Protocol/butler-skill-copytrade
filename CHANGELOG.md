@@ -1,5 +1,20 @@
 # Changelog
 
+## 8.0.0
+
+**A leg bevo-server refuses before it runs no longer counts toward the daily
+caps.** bevo-server now answers a duty's trade with a definitive, pre-execution
+402 — nothing sent, nothing reserved — when the pocket that funds it is used up
+(`pocket_empty`) or, shipping next, when the owner's wallet can't cover what the
+pocket could (`wallet_short`). `filed()` now recognises those two codes and calls
+a new `release(key)`, which writes a `released <UTC time> key=<key>` line and
+drops the key from the in-process ledger; the ledger reader walks `requested`
+and `released` lines in order, so a released key is not counted and a later
+retry of the same key counts again. Every other refusal — a 409, a timeout, an
+unparseable answer — may have landed, and keeps counting exactly as before.
+
+`recipe.json` goes to version 8 and supersedes `copytrade@7`.
+
 ## 7.0.0
 
 **Sells are mirrored by default.** `MIRROR_SELLS` now defaults to `true`; an
