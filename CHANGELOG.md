@@ -1,5 +1,20 @@
 # Changelog
 
+## 7.0.0
+
+**Sells are mirrored by default.** `MIRROR_SELLS` now defaults to `true`; an
+owner who wants buys only turns it off. A duty already filed under `@6` keeps
+the settings it stored — its `PARAMS` already carry `MIRROR_SELLS: false`
+explicitly, since defaults are filled in at filing time, not read.
+
+**The sizing figure is required for its mode.** `recipe.json`'s `params` gains
+an `allOf` conditional: `SIZE_USD` is required when `SIZING` is `fixed`,
+`SHARE` is required when `SIZING` is `cash_share` or `leader_share`. Before
+this, `SIZING: fixed` with no `SIZE_USD` filed cleanly and the duty never
+traded; now the Butler asks for the figure instead.
+
+`recipe.json` goes to version 7 and supersedes `copytrade@6`.
+
 ## 6.0.0
 
 **Daily caps, counted from the duty's own log.** Every leg is now written to the

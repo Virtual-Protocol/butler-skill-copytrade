@@ -9,7 +9,8 @@ restart is recognised by bevo-server's ledger and never filed twice.
 What it will not do: size off anything it could not read, guess a side a perp
 row did not name, or touch a rail whose switch is off. Every skip is a line
 in this duty's log with its reason, and each burst of trades produces at most
-one quiet note.
+one quiet note. It mirrors sells by default; an owner who wants buys only
+turns `MIRROR_SELLS` off.
 
 The log is also the duty's ledger. Every leg is written down as a `requested`
 line, with its dollar value, BEFORE it is sent, and the daily caps are counted
@@ -45,6 +46,8 @@ CHAIN_IDS = [int(c) for c in (PARAMS.get("CHAIN_IDS") or [])]
 MIN_LEADER = PARAMS.get("MIN_LEADER_USD") or 0
 # Widening switches are read with an explicit `False` default and never with
 # the schema's. A settings blob that lost a key must mirror LESS, not more.
+# (Sells are still ON by default: the schema's `true` is filled into PARAMS
+# when the duty is filed, so only a blob that LOST the key reads False here.)
 MIRROR_SELLS = PARAMS.get("MIRROR_SELLS", False) is True
 MIRROR_PERPS = PARAMS.get("MIRROR_PERPS", False) is True
 MIRROR_STOCKS = PARAMS.get("MIRROR_STOCKS", False) is True
