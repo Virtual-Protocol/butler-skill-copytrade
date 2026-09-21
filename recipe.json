@@ -1,0 +1,86 @@
+{
+  "id": "copytrade",
+  "version": 5,
+  "description": "Copy another trader's moves, on your own size.",
+  "keywords": ["copy", "copytrade", "mirror", "follow", "leader", "trader", "wallet"],
+  "triggers": ["trade"],
+  "supersedes": ["copytrade@3", "copytrade@4"],
+  "keys": [
+    "copy:<duty>:trade:<eventId>",
+    "copy:<duty>:perp-open:<eventId>",
+    "copy:<duty>:perp-close:<eventId>",
+    "copy:<duty>:stock-buy:<eventId>",
+    "copy:<duty>:stock-sell:<eventId>"
+  ],
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["SIZING"],
+    "properties": {
+      "SIZING": {
+        "enum": ["fixed", "cash_share", "leader_share"],
+        "description": "how much per copy — a fixed dollar figure, a share of your own cash, or a share of what they trade?"
+      },
+      "SIZE_USD": {
+        "type": "number",
+        "minimum": 2,
+        "maximum": 10000,
+        "description": "dollars per copy (SIZING=fixed)"
+      },
+      "SHARE": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "fraction for cash/leader share sizing (0.2 = 20%)"
+      },
+      "MAX_USD": {
+        "type": "number",
+        "minimum": 2,
+        "maximum": 100000,
+        "description": "per-trade ceiling; set only when the owner named one"
+      },
+      "CHAIN_IDS": {
+        "type": "array",
+        "items": { "type": "integer" },
+        "default": [],
+        "description": "empty = the leader's chain; set only when specified"
+      },
+      "MIRROR_SELLS": {
+        "type": "boolean",
+        "default": false,
+        "description": "copy spot sells too"
+      },
+      "MIN_LEADER_USD": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 100000,
+        "default": 0,
+        "description": "ignore leader trades smaller than this"
+      },
+      "MIRROR_PERPS": {
+        "type": "boolean",
+        "default": true,
+        "description": "copy the leader's perp opens and closes, at your own leverage"
+      },
+      "MIRROR_STOCKS": {
+        "type": "boolean",
+        "default": true,
+        "description": "copy the leader's tokenized-stock buys and sells"
+      },
+      "PERP_LEVERAGE": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 50,
+        "default": 0,
+        "description": "leverage for a copied perp open; 0 = use the leader's own"
+      },
+      "PERP_MAX_LEVERAGE": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 50,
+        "default": 0,
+        "description": "cap on the leverage of a copied open; 0 = no cap (the venue's 50x still applies)"
+      }
+    }
+  }
+}

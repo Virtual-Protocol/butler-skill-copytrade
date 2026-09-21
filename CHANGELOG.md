@@ -1,5 +1,31 @@
 # Changelog
 
+## 5.0.0
+
+**Breaking: this became a duty template bundle, not a skill.** The repo root
+is now `recipe.json` + `duty.py` + `README.md` — no frontmatter, no prose
+playbook. `SKILL.md` is gone; `duty.py` is now the whole execution, run
+verbatim as the duty's stored `code`. This 5.0.0 counts a different artefact
+than the old `4.0.1` did — that number tracked `SKILL.md`'s frontmatter
+`version`, which no longer exists.
+
+- The retired `bevo.trade(command=…, idempotency_key=…)` money rail (itself
+  a 4.0.0 replacement for the even-older `bevo.buy`/`sell`/`long`/`short`/
+  `close`/`stock_buy`/`stock_sell` verbs) is gone too — those SDK verbs were
+  deleted from `bevo.py` on 2026-09-21 with no shim. Every leg now calls
+  `subprocess.run(["acp", "trade", ..., "--idempotency-key", key])` directly.
+- Settings, gates, idempotency-key shapes and command grammar per leg (spot /
+  perp / tokenized stock) are unchanged from 4.0.1's intent; only the rail
+  they're placed through moved.
+- `recipe.json` declares `"supersedes": ["copytrade@3", "copytrade@4"]`, so a
+  duty whose stored ref still reads `copytrade@4` (or `@3`) keeps resolving.
+
+### Migration — existing duties must be re-filed
+
+A duty filed from the old bundle keeps running its own stored `duty.py` and
+does not auto-migrate. Re-file it (`duty_create` with `recipe: "copytrade@5"`)
+to pick up this version; there is no in-place upgrade.
+
 ## 4.0.1
 
 **Trimmed to just enough context.** SKILL.md 14,234 -> 11,370 chars (-20.1%), README
