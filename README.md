@@ -6,16 +6,16 @@ make is gated, sized against the owner's own wallet, and placed as its own keyed
 | The leader did | This duty does | Unless |
 | --- | --- | --- |
 | bought a token | buys the same token, on the leader's chain | `CHAIN_IDS` excludes it, or the trade is under `MIN_LEADER_USD` |
-| sold a token | sells what the owner holds of it, capped at their balance | `MIRROR_SELLS` is off (it is off by default) |
+| sold a token | sells what the owner holds of it, capped at their balance | `MIRROR_SELLS` is off (it is on by default) |
 | opened a perp | opens the same side, at `PERP_LEVERAGE` or the leader's own | `MIRROR_PERPS` is off |
 | closed a perp, or was liquidated | closes the owner's position, in USD notional | `MIRROR_PERPS` is off |
 | bought or sold a tokenized stock | does the same, share-denominated | `MIRROR_STOCKS` is off |
 
+Out of the box it follows the leader in and out: `MIRROR_SELLS` is on by default,
+so an owner who says "copy them" gets both sides unless they turn buys-only on.
+
 ## What it will not do
 
-- **Mirror sells by default.** `MIRROR_SELLS` is `false`, so out of the box this
-  follows the leader in and never follows them out. An owner who says "copy them"
-  usually means both; say which they are getting.
 - **Verify the token.** It copies what the leader actually traded — by address, or by
   symbol when that is what they typed — and never re-resolves through a catalogue. A
   leader buying something worthless is copied faithfully. The pocket is the limit.
@@ -37,14 +37,14 @@ make is gated, sized against the owner's own wallet, and placed as its own keyed
 | Name | Unit | Default | Means |
 | --- | --- | --- | --- |
 | `SIZING` | `fixed` \| `cash_share` \| `leader_share` | required | how much per copy — a flat figure, a share of the owner's cash, or a share of what the leader traded |
-| `SIZE_USD` | US dollars per copy | — | used when `SIZING` is `fixed`; minimum 2 |
-| `SHARE` | fraction 0–1 | — | used by `cash_share` / `leader_share`. `0.2` is 20% |
+| `SIZE_USD` | US dollars per copy | required when `SIZING` is `fixed` | used when `SIZING` is `fixed`; minimum 2 |
+| `SHARE` | fraction 0–1 | required when `SIZING` is `cash_share` or `leader_share` | used by `cash_share` / `leader_share`. `0.2` is 20% |
 | `MAX_USD` | US dollars | unset | per-trade ceiling. Set only when the owner named one |
 | `MAX_PER_DAY` | opening trades a day | `20` | buys and perp opens (UTC day) |
 | `MAX_USD_PER_DAY` | US dollars a day | unset | into opening trades, a perp at its margin. Set only when named |
 | `CHAIN_IDS` | chain ids | `[]` | empty means the leader's own chain. Set only when they named chains |
 | `MIN_LEADER_USD` | US dollars | `0` | ignore the leader's trades smaller than this |
-| `MIRROR_SELLS` | on/off | **off** | also follow spot sells |
+| `MIRROR_SELLS` | on/off | **on** | also follow spot sells |
 | `MIRROR_PERPS` | on/off | **on** | also follow perp opens and closes |
 | `MIRROR_STOCKS` | on/off | **on** | also follow tokenized-stock buys and sells |
 | `PERP_LEVERAGE` | multiple | `0` | leverage for a copied open; `0` uses the leader's own |

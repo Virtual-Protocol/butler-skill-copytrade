@@ -1,10 +1,10 @@
 {
   "id": "copytrade",
-  "version": 6,
+  "version": 7,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": ["copy", "copytrade", "mirror", "follow", "leader", "trader", "wallet"],
   "triggers": ["trade"],
-  "supersedes": ["copytrade@3", "copytrade@4", "copytrade@5"],
+  "supersedes": ["copytrade@3", "copytrade@4", "copytrade@5", "copytrade@6"],
   "keys": [
     "copy:<duty>:trade:<eventId>",
     "copy:<duty>:perp-open:<eventId>",
@@ -16,6 +16,10 @@
     "type": "object",
     "additionalProperties": false,
     "required": ["SIZING"],
+    "allOf": [
+      { "if": { "properties": { "SIZING": { "const": "fixed" } } }, "then": { "required": ["SIZE_USD"] } },
+      { "if": { "properties": { "SIZING": { "enum": ["cash_share", "leader_share"] } } }, "then": { "required": ["SHARE"] } }
+    ],
     "properties": {
       "SIZING": {
         "enum": ["fixed", "cash_share", "leader_share"],
@@ -60,7 +64,7 @@
       },
       "MIRROR_SELLS": {
         "type": "boolean",
-        "default": false,
+        "default": true,
         "description": "copy spot sells too"
       },
       "MIN_LEADER_USD": {
