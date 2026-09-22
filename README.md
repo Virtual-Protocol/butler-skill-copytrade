@@ -23,15 +23,11 @@ Out of the box it follows the leader in and out — `MIRROR_SELLS` defaults on.
 - **Exceed `MAX_USD` per trade**, when one is set — except on a perp close, which is
   deliberately unclamped: a close trimmed to a ceiling leaves a residual position,
   which is worse than not closing.
-- **Exceed its daily caps.** Each leg is logged with its dollar value *before* it is
-  sent, and `MAX_PER_DAY` / `MAX_USD_PER_DAY` count today's (UTC) lines — a restart
-  changes nothing. Only opening legs count, trimmed to what's left; exits are never
-  capped. A leg refused before it runs — pocket used up, wallet short — releases its
-  line, so a top-up resumes same-day. If the log can't reach midnight, buys are
-  skipped.
 - **Copy the owner's own trades.** Their own activity never arms a leg.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
-  empty; until it is funded every leg becomes an approval card.
+  empty; until it is funded every leg becomes an approval card. Once funded, the pocket
+  is what bounds its spending beyond `MAX_USD`: the duty keeps no daily count of its
+  own, and the server refuses a leg the pocket can't cover.
 
 ## Settings
 
@@ -41,8 +37,6 @@ Out of the box it follows the leader in and out — `MIRROR_SELLS` defaults on.
 | `SIZE_USD` | US dollars per copy | required when `SIZING` is `fixed` | used when `SIZING` is `fixed`; minimum 2 |
 | `SHARE` | fraction 0–1 | required when `SIZING` is `cash_share` or `leader_share` | used by `cash_share` / `leader_share`. `0.2` is 20% |
 | `MAX_USD` | US dollars | unset | per-trade ceiling. Set only when the owner named one |
-| `MAX_PER_DAY` | opening trades a day | `20` | buys and perp opens (UTC day) |
-| `MAX_USD_PER_DAY` | US dollars a day | unset | into opening trades, a perp at its margin. Set only when named |
 | `CHAIN_IDS` | chain ids | `[]` | empty means the leader's own chain. Set only when they named chains |
 | `MIN_LEADER_USD` | US dollars | `0` | ignore the leader's trades smaller than this |
 | `MIRROR_SELLS` | on/off | **on** | also follow spot sells |
