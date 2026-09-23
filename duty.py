@@ -53,7 +53,10 @@ NAME = os.environ.get("BEVO_SERVICE_NAME") or "copytrade"
 # locally makes the skip a logged sentence instead.
 SPOT_MIN_USD = 2.0
 PERP_MIN_USD = 15.0
-STOCK_MIN_USD = 15.0
+# A tokenized stock's floor is per ticker, not a constant — see stock_floor().
+# This is what bevo-server answers when it cannot say, and what a failed read
+# falls back to.
+STOCK_MIN_DEFAULT_USD = 5.0
 # Perp leverage bevo-server accepts. A figure outside it is CLAMPED, never
 # refused: the leverage comes from the leader, and refusing the leg because
 # they used 20x under a 5x cap stops the mirror silently.
@@ -355,6 +358,21 @@ def perp_close(ev, key):
     return filed(args, key, sentence)
 
 
+def stock_floor(ticker):
+    """The smallest buy the venues take for this tokenized stock right now.
+
+    Per listing, not a constant: $5 on most tickers and $22 on the illiquid
+    tail, the cost buffer included, and it moves as venues go thin. bevo-server
+    computes it with the rule the planner gates on, so a leg under it is
+    refused here as a sentence rather than downstream as a wire error. A read
+    that fails falls back to the server's own default and lets the rail decide.
+    """
+    try:
+        return float(bevo.read("/stock-limits", {"ticker": ticker})["minUsd"])
+    except (bevo.BevoError, KeyError, TypeError, ValueError):
+        return STOCK_MIN_DEFAULT_USD
+
+
 def stock_buy(ev, usd, key):
     """A tokenized stock's own grammar: no `--side`, a ticker, and a floor."""
     raw = str(ev.coin or "").strip()
@@ -363,9 +381,10 @@ def stock_buy(ev, usd, key):
         # `--token 0x…` is the spot grammar with a stock's flags, and the rail
         # answers it by buying whatever token that address is.
         return refused(sentence, "a tokenized stock is named by its ticker, not an address")
-    if usd < STOCK_MIN_USD:
-        return refused(sentence, "stock buys are $%s minimum, got $%s" % (fmt(STOCK_MIN_USD), fmt(usd)))
     ref = token_ref(raw)
+    floor = stock_floor(ref)
+    if usd < floor:
+        return refused(sentence, "%s buys are $%s minimum, got $%s" % (ref, fmt(floor), fmt(usd)))
     args = ["--token", ref, "--amount-usdc", fmt(usd)]
     return filed(args, key, "Buy %s" % ref)
 

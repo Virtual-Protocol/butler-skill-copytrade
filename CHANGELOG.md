@@ -1,5 +1,19 @@
 # Changelog
 
+## 10.0.0
+
+**A tokenized-stock buy clears that ticker's own floor, not a fixed $15.** The floor is
+per listing: $5 on most tickers and $22 on the illiquid tail, the cost buffer included,
+and it moves as venues go thin. Before, every stock leg under $15 was refused, including
+the $5–$14 copies the venue takes, and a $15–$21 leg on a $22 ticker was sent and turned
+down by the planner.
+
+- `stock_buy` reads `bevo.read("/stock-limits", {"ticker": …})["minUsd"]` for each leg —
+  the floor bevo-server computes with the rule the planner gates on — and refuses a leg
+  under it with that figure. A read that fails falls back to $5, the server's own default.
+- `recipe.json` goes to version 10 and supersedes `copytrade@9`. A duty already filed keeps
+  its stored code, and with it the $15 floor; re-file it to pick this up.
+
 ## 9.0.0
 
 **The daily caps are gone.** `MAX_PER_DAY` and `MAX_USD_PER_DAY` are removed, and
