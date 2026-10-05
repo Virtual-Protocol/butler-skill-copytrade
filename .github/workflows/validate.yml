@@ -1,0 +1,14 @@
+name: validate
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      # Checks out this repo, fetches the registry's validator + offline replay
+      # harness and runs both against this template bundle (inputs: path,
+      # default "."; standalone, default "true").
+      - uses: Virtual-Protocol/butler-skills/.github/actions/validate@main
+        with:
+          maintainer: "true"
