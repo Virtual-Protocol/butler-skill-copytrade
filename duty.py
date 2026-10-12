@@ -122,7 +122,8 @@ def answer_of(text):
 
 
 def filed(args, key, sentence):
-    """Run one `acp trade` and read what it answered. Returns (ok, summary).
+    """Run one `acp trade` and read what it answered. Returns (ok, summary);
+    summary is None for a replay — already filed, nothing to tell.
 
     `--idempotency-key` is written out literally as the last pair of the argv:
     that is what makes the same leader event redelivered after a restart the
@@ -147,6 +148,12 @@ def filed(args, key, sentence):
             "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
             "Never re-run this with a new key." % (sentence, state)
         )
+    if answer.get("replay"):
+        # The ledger already had this key: a redelivered leader event, answered
+        # from the first send. Nothing new was filed, and the owner was told
+        # the first time — a summary here re-notifies the same approval card on
+        # every redelivery. None is "ok, say nothing".
+        return True, None
     if answer.get("executed"):
         return True, "%s — executed" % sentence
     if answer.get("asked"):
@@ -317,7 +324,7 @@ def perp_open(ev, usd, key):
         "--leverage", str(lev),
     ]
     ok, summary = filed(args, key, sentence)
-    if lev != math.trunc(asked):
+    if summary is not None and lev != math.trunc(asked):
         # Said where the owner reads it, not only in the log: the clamp
         # changed the size of a position they are about to see a card for.
         summary += " (leverage %sx clamped to %dx)" % (fmt(asked), lev)
@@ -562,7 +569,9 @@ for batch in bevo.batches(seconds=3):
             say("skipped %s: the event named no side" % (ev.id,))
             continue
         ok, summary = result
-        if ok:
+        if ok and summary is None:
+            say("skipped %s: already filed (replay of %s)" % (ev.id, key))
+        elif ok:
             told.append(summary)
         else:
             skipped += 1
