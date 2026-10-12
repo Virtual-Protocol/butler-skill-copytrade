@@ -1,5 +1,18 @@
 # Changelog
 
+## 11.0.0
+
+**A redelivered leader event no longer re-notifies the owner.** When the same event
+reached the duty twice while its approval card was still open, `acp trade` answered the
+second send from the ledger (`replay: true`, still `asked: true`), and `filed()` read it
+as a fresh approval. Every redelivery sent the owner another "waiting for your owner's
+approval" note for the one trade.
+
+- `filed()` returns `(True, None)` on a `replay` answer; the batch loop logs it to
+  `duty_logs` and leaves it out of the notification.
+- `recipe.json` goes to version 11 and supersedes `copytrade@10`. A duty already filed
+  keeps its stored code, and with it the repeat notifications; re-file it to pick this up.
+
 ## 10.0.0
 
 **A tokenized-stock buy clears that ticker's own floor, not a fixed $15.** The floor is
