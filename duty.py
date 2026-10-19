@@ -538,7 +538,7 @@ def place(ev, route, usd, key):
 #: How a copied leg reads on the owner's Duties row: "Copied VIRTUAL buy".
 VERBS = {
     "spot-buy": "buy", "spot-sell": "sell", "stock-buy": "buy", "stock-sell": "sell",
-    "perp-open": "position", "perp-close": "close",
+    "perp-close": "close",
 }
 
 bevo.status("starting")
@@ -584,7 +584,13 @@ for batch in bevo.batches(seconds=3):
         elif ok:
             told.append(summary)
             # The ticker the owner knows, never the address behind it.
-            last_copied = "%s %s" % (ev.asset.symbol or "a token", VERBS.get(route, "trade"))
+            verb = VERBS.get(route, "trade")
+            if route == "perp-open":
+                verb = "short" if ev.is_short else "long"
+            # A perp close is neither a buy nor a sell, so `asset` reads the
+            # wrong leg; the coin is on whichever side carries a symbol.
+            coin = ev.asset.symbol or ev.token_out or ev.token_in
+            last_copied = "%s %s" % (coin, verb) if coin else "a %s" % verb
             asked = asked or "approval" in summary
         else:
             skipped += 1
