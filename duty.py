@@ -535,9 +535,19 @@ def place(ev, route, usd, key):
     return None
 
 
+#: How a copied leg reads on the owner's Duties row: "Copied VIRTUAL buy".
+VERBS = {
+    "spot-buy": "buy", "spot-sell": "sell", "stock-buy": "buy", "stock-sell": "sell",
+    "perp-open": "position", "perp-close": "close",
+}
+
+bevo.status("starting")
 for batch in bevo.batches(seconds=3):
     told = []
     skipped = 0
+    failed = 0
+    last_copied = None
+    asked = False
     for raw in batch:
         ev = bevo.typed(raw)
         if not isinstance(ev, bevo.TradeEvent) or ev.id is None:
@@ -573,9 +583,23 @@ for batch in bevo.batches(seconds=3):
             say("skipped %s: already filed (replay of %s)" % (ev.id, key))
         elif ok:
             told.append(summary)
+            # The ticker the owner knows, never the address behind it.
+            last_copied = "%s %s" % (ev.asset.symbol or "a token", VERBS.get(route, "trade"))
+            asked = asked or "approval" in summary
         else:
             skipped += 1
+            failed += 1
             say("skipped %s: %s" % (ev.id, summary))
+
+    # The owner's Duties row: recipe.json `status` words each state.
+    if asked:
+        bevo.status("approval")
+    elif last_copied:
+        bevo.status("copied", what=last_copied)
+    elif failed:
+        bevo.status("failed")
+    elif skipped:
+        bevo.status("skipped")
 
     # One note per burst, and only when something actually happened. A duty
     # that notifies on every quiet batch is one the owner mutes, after which

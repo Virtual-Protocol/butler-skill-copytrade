@@ -1,5 +1,15 @@
 # Changelog
 
+## 12.0.0
+
+**The duty reports a status line.** Its row in the owner's Duties list said only
+"nothing yet", because the program never called `bevo.status()`.
+
+- It reports `starting` when it begins, then after each burst `copied` ("Copied VIRTUAL
+  buy"), `approval`, `failed` or `skipped`; `recipe.json` `status` words each.
+- `recipe.json` goes to version 12 and supersedes `copytrade@11`. A duty already filed keeps
+  its stored code; re-file it to pick this up.
+
 ## 11.0.0
 
 **A redelivered leader event no longer re-notifies the owner.** When the same event

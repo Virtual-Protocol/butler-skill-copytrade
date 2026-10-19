@@ -1,10 +1,30 @@
 {
   "id": "copytrade",
-  "version": 11,
+  "version": 12,
   "description": "Copy another trader's moves, on your own size.",
-  "keywords": ["copy", "copytrade", "mirror", "follow", "leader", "trader", "wallet"],
-  "triggers": ["trade"],
-  "supersedes": ["copytrade@3", "copytrade@4", "copytrade@5", "copytrade@6", "copytrade@7", "copytrade@8", "copytrade@9", "copytrade@10"],
+  "keywords": [
+    "copy",
+    "copytrade",
+    "mirror",
+    "follow",
+    "leader",
+    "trader",
+    "wallet"
+  ],
+  "triggers": [
+    "trade"
+  ],
+  "supersedes": [
+    "copytrade@3",
+    "copytrade@4",
+    "copytrade@5",
+    "copytrade@6",
+    "copytrade@7",
+    "copytrade@8",
+    "copytrade@9",
+    "copytrade@10",
+    "copytrade@11"
+  ],
   "keys": [
     "copy:<duty>:trade:<eventId>",
     "copy:<duty>:perp-open:<eventId>",
@@ -15,14 +35,49 @@
   "params": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["SIZING"],
+    "required": [
+      "SIZING"
+    ],
     "allOf": [
-      { "if": { "properties": { "SIZING": { "const": "fixed" } } }, "then": { "required": ["SIZE_USD"] } },
-      { "if": { "properties": { "SIZING": { "enum": ["cash_share", "leader_share"] } } }, "then": { "required": ["SHARE"] } }
+      {
+        "if": {
+          "properties": {
+            "SIZING": {
+              "const": "fixed"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "SIZE_USD"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "SIZING": {
+              "enum": [
+                "cash_share",
+                "leader_share"
+              ]
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "SHARE"
+          ]
+        }
+      }
     ],
     "properties": {
       "SIZING": {
-        "enum": ["fixed", "cash_share", "leader_share"],
+        "enum": [
+          "fixed",
+          "cash_share",
+          "leader_share"
+        ],
         "description": "how much per copy — a fixed dollar figure, a share of your own cash, or a share of what they trade?"
       },
       "SIZE_USD": {
@@ -45,7 +100,9 @@
       },
       "CHAIN_IDS": {
         "type": "array",
-        "items": { "type": "integer" },
+        "items": {
+          "type": "integer"
+        },
         "default": [],
         "description": "empty = the leader's chain; set only when specified"
       },
@@ -86,5 +143,12 @@
         "description": "cap on the leverage of a copied open; 0 = no cap (the venue's 50x still applies)"
       }
     }
+  },
+  "status": {
+    "starting": "Waiting for a trade to copy",
+    "copied": "Copied {what}",
+    "approval": "Copy awaits your approval",
+    "skipped": "Last trade not copied",
+    "failed": "Last copy failed"
   }
 }
