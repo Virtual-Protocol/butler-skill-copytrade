@@ -1,6 +1,6 @@
 {
   "id": "copytrade",
-  "version": 12,
+  "version": 13,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": [
     "copy",
@@ -23,7 +23,8 @@
     "copytrade@8",
     "copytrade@9",
     "copytrade@10",
-    "copytrade@11"
+    "copytrade@11",
+    "copytrade@12"
   ],
   "keys": [
     "copy:<duty>:trade:<eventId>",
@@ -83,7 +84,6 @@
       "SIZE_USD": {
         "type": "number",
         "minimum": 2,
-        "maximum": 10000,
         "description": "dollars per copy (SIZING=fixed)"
       },
       "SHARE": {

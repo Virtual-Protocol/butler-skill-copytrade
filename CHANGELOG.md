@@ -1,5 +1,11 @@
 # Changelog
 
+## 13.0.0
+
+**No $10,000 ceiling on a setting.** `recipe.json` no longer caps that amount at 10000; the floors and the 100000 limits stay.
+
+- `recipe.json` goes to version 13 and supersedes `copytrade@12`. A duty already filed keeps its stored code; re-file it to pick this up.
+
 ## 12.0.0
 
 **The duty reports a status line.** Its row in the owner's Duties list said only
