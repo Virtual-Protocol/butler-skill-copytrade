@@ -53,8 +53,6 @@ MIRROR_STOCKS = PARAMS.get("MIRROR_STOCKS", False) is True
 PERP_LEVERAGE = PARAMS.get("PERP_LEVERAGE") or 0
 PERP_MAX_LEVERAGE = PARAMS.get("PERP_MAX_LEVERAGE") or 0
 
-NAME = os.environ.get("BEVO_SERVICE_NAME") or "copytrade"
-
 # The rails' own minimums, refused here rather than downstream: a leg under
 # one comes back as a wire error a loop reads as an outage, and refusing it
 # locally makes the skip a logged sentence instead.
@@ -402,6 +400,40 @@ def fmt(number):
     return ("%.8f" % float(number)).rstrip("0").rstrip(".")
 
 
+def money(usd):
+    """A dollar figure as the owner reads it: `$3`, `$2.50`. A `$` followed by
+    a digit is an amount to the app, never a token chip."""
+    text = "%.2f" % float(usd)
+    return "$" + (text[:-3] if text.endswith(".00") else text)
+
+
+def qty(number):
+    """A token or share quantity, to six significant figures."""
+    return "%.6g" % float(number)
+
+
+TICKER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$")
+
+
+def tag(symbol, ref=None):
+    """How a note names a token: `$VIRTUAL`, which the app renders as a chip
+    that opens the token's card. A symbol a chip cannot hold is written as
+    plain words, and with no symbol at all the address is shortened — a note
+    never carries a whole address. The symbol is the leader's token's, so
+    untrusted: only word characters, spaces, `.` and `-` survive, which keeps
+    it from forming markdown (a link, emphasis) or a line of its own.
+    """
+    text = re.sub(r"[^\w .\-]", "", " ".join(str(symbol or "").split())).strip()
+    if text and not (EVM_ADDRESS.match(text) or SOLANA_ADDRESS.match(text)):
+        if TICKER.match(text) and re.search(r"[A-Za-z]", text):
+            return "$" + text.upper()
+        return text[:24]
+    address = re.sub(r"[^\w]", "", str(ref or symbol or ""))
+    if len(address) > 12:
+        return "%s…%s" % (address[:6], address[-4:])
+    return address or "a token"
+
+
 def floor8(number):
     """Floored, not rounded: rounding up sells a quantity the owner does not
     have, and the rail answers that with a balance error, not a smaller fill."""
@@ -494,11 +526,11 @@ def filed(args, key, sentence, leg=None):
         # every redelivery. None is "ok, say nothing".
         return True, None
     if answer.get("executed"):
-        return True, "%s — executed" % sentence
+        return True, "%s — done" % sentence
     if answer.get("asked"):
-        return True, "%s — waiting for your owner's approval" % sentence
+        return True, "%s — waiting for your approval" % sentence
     if answer.get("ok"):
-        return True, "%s — accepted, executing now" % sentence
+        return True, "%s — placed" % sentence
     if answer.get("unrecognized"):
         return False, (
             "%s — the server answered %r, which this container does not recognise. "
@@ -646,7 +678,7 @@ def open_position(ref, rows):
 
 def spot_buy(ev, usd, key):
     ref = token_ref(ev.asset.ref)
-    sentence = "Buy %s" % ref
+    sentence = "Buy %s of %s" % (money(usd), tag(ev.asset.symbol, ref))
     if usd < SPOT_MIN_USD:
         return refused(sentence, "spot buys are $%s minimum, got $%s" % (fmt(SPOT_MIN_USD), fmt(usd)))
     chain = ev.asset.chain_id
@@ -696,6 +728,7 @@ def spot_sell(ev, key):
     if held.chain_id is not None:
         args += ["--chain-in", str(held.chain_id)]
     args += ["--amount-in", fmt(amount), "--token-out", "usdc"]
+    sentence = "Sell %s %s" % (qty(amount), tag(ev.token_in or entry.get("label"), ref))
     return filed(args, key, sentence, copied_exit(poskey, amount))
 
 
@@ -748,11 +781,12 @@ def perp_open(ev, usd, key):
         "--leverage", str(lev),
     ]
     leg = copied_buy(poskey, usd, num(ev.raw.get("fillPriceUsd")), num(ev.raw.get("amountOut")), side)
+    sentence = "%s %s of %s at %dx" % (side.capitalize(), money(usd), tag(ref), lev)
     ok, summary = filed(args, key, sentence, leg)
     if summary is not None and lev != math.trunc(asked):
         # Said where the owner reads it, not only in the log: the clamp
         # changed the size of a position they are about to see a card for.
-        summary += " (leverage %sx clamped to %dx)" % (fmt(asked), lev)
+        summary += " (they used %sx; capped at %dx)" % (fmt(asked), lev)
     return ok, summary
 
 
@@ -805,6 +839,7 @@ def perp_close(ev, key):
         "--amount-usdc", fmt(notional),
         "--reduce-only",
     ]
+    sentence = "Close %s of %s %s" % (money(notional), tag(ref), side)
     return filed(args, key, sentence, copied_exit(poskey, coins))
 
 
@@ -842,7 +877,8 @@ def stock_buy(ev, usd, key):
     poskey = stock_key(leader_of(ev), ref)
     entry_for(poskey, "stock", ref)
     args = ["--token", ref, "--amount-usdc", fmt(usd)]
-    return filed(args, key, "Buy %s" % ref, copied_buy(poskey, usd, None, None))
+    sentence = "Buy %s of %s" % (money(usd), tag(ref))
+    return filed(args, key, sentence, copied_buy(poskey, usd, None, None))
 
 
 def stock_sell(ev, key):
@@ -878,6 +914,7 @@ def stock_sell(ev, key):
         # A numeric `--chain` is rerouted onto a bare-symbol spot swap.
         return refused(sentence, "no venue on the %s holding" % ref)
     args = ["--token", ref, "--amount-shares", fmt(shares), "--chain", str(held.venue)]
+    sentence = "Sell %s shares of %s" % (qty(shares), tag(ref))
     return filed(args, key, sentence, copied_exit(poskey, shares))
 
 
@@ -1133,13 +1170,17 @@ def burst(batch):
     # One note per burst, and only when something actually happened. A duty
     # that notifies on every quiet batch is one the owner mutes, after which
     # the note that mattered is unheard too.
+    #
+    # The note is read by the owner in this duty's own chat: one line per
+    # trade, no duty name in front (the chat's header names it), the token as
+    # `$TICKER` (a chip that opens its card) and the amount. Why a trade was
+    # skipped stays in the log.
     for what in UNCONFIRMED:
         told.append("%s — could not be confirmed, so it is not counted as copied" % what)
     if told:
-        line = "%s: %s" % (NAME, "; ".join(told))
         if skipped:
-            line += "; %d skipped — see duty_logs" % skipped
-        bevo.notify(line[:500], quiet=True)
+            told.append("Didn't copy %d other trade%s" % (skipped, "" if skipped == 1 else "s"))
+        bevo.notify("\n".join(told), quiet=True)
 
 
 def main():

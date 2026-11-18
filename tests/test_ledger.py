@@ -350,3 +350,58 @@ def test_a_redelivered_flip_is_not_reopened(world, monkeypatch):
     world.calls.clear()
     duty.burst([perp(2, "BTC", "short")])
     assert world.calls == []
+
+
+# ── what the owner reads ─────────────────────────────────────────────────────
+
+
+def notes():
+    return [a["text"] for a in bevo.RECORDED_ACTIONS if a["call"] == "notify"]
+
+
+def test_a_burst_note_is_one_line_per_trade_with_ticker_and_amount(world):
+    del bevo.RECORDED_ACTIONS[:]
+    world.answers[key("trade", 1)] = ASKED
+    world.answers[key("trade", 2)] = ASKED
+    duty.burst([buy(1), buy(2)])
+    assert notes() == [
+        "Buy $25 of $VIRTUAL — waiting for your approval\n"
+        "Buy $25 of $VIRTUAL — waiting for your approval"
+    ]
+
+
+def test_a_note_never_names_the_duty_or_the_address(world):
+    del bevo.RECORDED_ACTIONS[:]
+    duty.burst([buy(1)])
+    (text,) = notes()
+    assert text == "Buy $25 of $VIRTUAL — placed"
+    assert VIRTUAL not in text and "owner" not in text
+
+
+def test_skipped_trades_are_counted_on_their_own_line(world):
+    del bevo.RECORDED_ACTIONS[:]
+    duty.burst([buy(1), sell(2)])  # nothing copied yet, so the sell is skipped
+    assert notes() == ["Buy $25 of $VIRTUAL — placed\nDidn't copy 1 other trade"]
+
+
+def test_a_perp_open_names_side_size_and_leverage(world):
+    del bevo.RECORDED_ACTIONS[:]
+    duty.burst([perp(1, "BTC", "long")])
+    assert notes() == ["Long $25 of $BTC at 5x — placed"]
+
+
+@pytest.mark.parametrize("symbol, ref, expected", [
+    ("VIRTUAL", VIRTUAL, "$VIRTUAL"),
+    (None, VIRTUAL, "0x0b3e…7e1b"),
+    ("", "So11111111111111111111111111111111111111112", "So1111…1112"),
+    ("[pwn](https://x.y)", None, "$PWNHTTPSX.Y"),  # no markdown survives
+    ("Pepe Coin", None, "Pepe Coin"),
+    ("a\nb", None, "a b"),
+])
+def test_tag_names_a_token_without_its_address(symbol, ref, expected):
+    assert duty.tag(symbol, ref) == expected
+
+
+def test_money_reads_like_a_price():
+    assert duty.money(3) == "$3"
+    assert duty.money(2.5) == "$2.50"
