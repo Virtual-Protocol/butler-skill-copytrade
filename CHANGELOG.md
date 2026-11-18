@@ -17,6 +17,11 @@ copy open.
   owner holds (reduce-only at the copy's coins × mark for a perp). When the share is not
   stated it sells the whole copy. Nothing copied → no order, logged "nothing copied to
   unwind". A swap out of a copied token does not buy the other one.
+- A spot exit sells only from the copy's own chain: a copy the owner sold by hand is never
+  refilled from their lot on another chain, and a copy bought by symbol is not sold when
+  two tokens on that chain share the symbol.
+- A leader event already handled is never turned into a second, different order on
+  redelivery (a flip that closed the copy is not reopened as a new copy).
 - The copy shrinks to the holding when the owner sold some by hand; a perp copy whose
   live position is flat or on the other side is cleared without an order.
 - A copied perp open is refused when the owner holds that coin on the other side, or

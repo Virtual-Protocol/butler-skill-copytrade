@@ -318,3 +318,35 @@ def test_an_open_against_the_owners_own_side_is_refused(world):
     duty.burst([perp(1, "ETH", "long")])
     assert world.calls == []
     assert units("perp|ETH") == 0
+
+
+def test_an_exit_never_sells_the_owners_lot_on_another_chain(world, monkeypatch):
+    copied_virtual(world, monkeypatch)
+    world.body = assets(virtual=0)
+    world.body["spot"]["tokens"].append({"chainId": 1, "tokenAddress": VIRTUAL, "symbol": "VIRTUAL",
+                                         "balance": 5000, "usdPrice": 1.3})
+    duty.burst([sell(2)])
+    assert world.calls == []
+    assert units(SPOT) == 0
+
+
+def test_a_symbol_two_tokens_share_is_not_sold(world, monkeypatch):
+    world.fates[key("trade", 1)] = "executed"
+    duty.burst([trade(1, type="SWAP", direction="buy", tokenInSymbol="USDC",
+                      tokenOutSymbol="VIRTUAL", usdValue=25)])
+    world.body["spot"]["tokens"].append({"chainId": 8453, "tokenAddress": "0x" + "9" * 40,
+                                         "symbol": "VIRTUAL", "balance": 9000, "usdPrice": 1.3})
+    world.calls.clear()
+    duty.burst([sell(2, by="symbol")])
+    assert world.calls == []
+
+
+def test_a_redelivered_flip_is_not_reopened(world, monkeypatch):
+    copied_btc_long(world)
+    world.fates[key("perp-close", 2)] = "executed"
+    duty.burst([perp(2, "BTC", "short")])
+    assert "--reduce-only" in world.calls[-1]
+    world.body = assets(positions=[])
+    world.calls.clear()
+    duty.burst([perp(2, "BTC", "short")])
+    assert world.calls == []
