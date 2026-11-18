@@ -6,12 +6,14 @@ make is gated, sized against the owner's own wallet, and placed as its own keyed
 | The leader did | This duty does | Unless |
 | --- | --- | --- |
 | bought a token | buys the same token, on the leader's chain | `CHAIN_IDS` excludes it, or the trade is under `MIN_LEADER_USD` |
-| sold a token | sells what the owner holds of it, capped at their balance | `MIRROR_SELLS` is off (it is on by default) |
+| sold a token, or swapped it away | sells its own copy, in the share the leader sold, capped at what the owner holds | `MIRROR_SELLS` is off (it is on by default) |
 | opened a perp | opens the same side, at `PERP_LEVERAGE` or the leader's own | `MIRROR_PERPS` is off |
-| closed a perp, or was liquidated | closes the owner's position, in USD notional | `MIRROR_PERPS` is off |
+| closed a perp, or was liquidated | closes its own copy, in the share the leader closed, reduce-only in USD notional | `MIRROR_PERPS` is off |
 | bought or sold a tokenized stock | does the same, share-denominated | `MIRROR_STOCKS` is off |
 
-Out of the box it follows the leader in and out — `MIRROR_SELLS` defaults on.
+Out of the box it follows the leader in and out — `MIRROR_SELLS` defaults on. A copy counts once it
+executes; an unstated share sold sells all of it. `SIZING`, `MAX_USD`, `MIN_LEADER_USD`
+and `CHAIN_IDS` apply to buys and opens only.
 
 ## What it will not do
 
@@ -20,9 +22,11 @@ Out of the box it follows the leader in and out — `MIRROR_SELLS` defaults on.
   leader buying something worthless is copied faithfully. The pocket is the limit.
 - **Size from the leader's wallet.** `cash_share` is a share of the *owner's* cash;
   `leader_share` is a share of what the leader put in. `fixed` ignores both.
-- **Exceed `MAX_USD` per trade**, when one is set — except on a perp close, which is
-  deliberately unclamped: a close trimmed to a ceiling leaves a residual position,
-  which is worse than not closing.
+- **Exceed `MAX_USD` per buy or open**, when one is set.
+- **Sell or close what it did not copy**: the owner's own holdings and positions, and
+  copies an earlier version of this duty made.
+- **Remember copies across a re-created duty**: a new duty starts an empty count.
+- **Open a perp against the owner's own opposite position** on that coin.
 - **Copy the owner's own trades.** Their own activity never arms a leg.
 - **Spend before the owner funds it.** It spends through the pocket, which starts
   empty; until it is funded every leg becomes an approval card. Once funded, the pocket
