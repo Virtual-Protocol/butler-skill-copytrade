@@ -1,5 +1,35 @@
 # Changelog
 
+## 14.0.0
+
+**The duty sells and closes only what it copied.** It traded in the owner's own wallet
+and kept no count, so a leader's perp close closed the owner's whole position on that
+coin (their own $100k with the copied $30k), and a copied sell was sized from `SIZING`
+against the whole holding: it could sell the owner's own tokens, or leave most of the
+copy open.
+
+- It keeps a copy book in `bevo.state["copies"]`, per leader and asset. A buy or open is
+  counted only when `bevo.settled(key)` says `executed`, at the fill price the feed
+  states or else the holding's price now; a refused, declined or expired one never is,
+  and a replayed answer never counts it twice.
+- A sell, a perp close, a liquidation, a swap out of a copied token, or an open against
+  the copied perp side unwinds the leader's share sold of the copy, capped at what the
+  owner holds (reduce-only at the copy's coins × mark for a perp). When the share is not
+  stated it sells the whole copy. Nothing copied → no order, logged "nothing copied to
+  unwind". A swap out of a copied token does not buy the other one.
+- The copy shrinks to the holding when the owner sold some by hand; a perp copy whose
+  live position is flat or on the other side is cleared without an order.
+- A copied perp open is refused when the owner holds that coin on the other side, or
+  when the perp account cannot be read.
+- Exits ignore `SIZING`, `MAX_USD`, `MIN_LEADER_USD` and `CHAIN_IDS`; the `MIRROR_*`
+  switches still apply.
+- `recipe.json` goes to version 14, supersedes `copytrade@13`, and adds the `tracking`
+  note, sent once when the book starts.
+
+**Upgrading:** copies an earlier version made are not in the book and are never sold or
+closed by this one; the owner closes those by hand. A duty already filed keeps its stored
+code; re-file it to pick this up.
+
 ## 13.0.0
 
 **No $10,000 ceiling on a setting.** `recipe.json` no longer caps that amount at 10000; the floors and the 100000 limits stay.

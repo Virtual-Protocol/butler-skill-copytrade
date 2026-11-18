@@ -1,6 +1,6 @@
 {
   "id": "copytrade",
-  "version": 13,
+  "version": 14,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": [
     "copy",
@@ -24,7 +24,8 @@
     "copytrade@9",
     "copytrade@10",
     "copytrade@11",
-    "copytrade@12"
+    "copytrade@12",
+    "copytrade@13"
   ],
   "keys": [
     "copy:<duty>:trade:<eventId>",
@@ -150,5 +151,11 @@
     "approval": "Copy awaits your approval",
     "skipped": "Last trade not copied",
     "failed": "Last copy failed"
+  },
+  "notes": {
+    "tracking": {
+      "text": "This duty now keeps its own count of what it copies and sells or closes only that. Anything it did not copy, including positions an earlier version copied, stays as it is: sell or close those yourself.",
+      "push": "Copytrade: close earlier copies yourself"
+    }
   }
 }

@@ -12,3 +12,25 @@ jobs:
       - uses: Virtual-Protocol/butler-skills/.github/actions/validate@main
         with:
           maintainer: "true"
+          # SIZING is required with no default: without a size the replay
+          # skips every event and never reaches a sell or close.
+          params: '{"SIZING":"fixed","SIZE_USD":25}'
+
+  # The copy book's money rules, against the hub's offline `bevo` stub.
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Virtual-Protocol/butler-skills
+          ref: main
+          path: .butler-skills-hub
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest
+      - run: python -m pytest tests/ -q
+        env:
+          BUTLER_SKILLS_DIR: ${{ github.workspace }}/.butler-skills-hub
