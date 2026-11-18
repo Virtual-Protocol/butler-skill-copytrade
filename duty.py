@@ -264,7 +264,7 @@ def price_now(entry, fresh):
     holding or position. None when it cannot be said yet."""
     body = fresh.get()
     if entry["rail"] == "spot":
-        held = held_row(entry.get("addr") or entry["label"], entry.get("chain"), spot_rows(body))
+        held = held_row(entry.get("addr") or entry["label"], entry.get("chain"), spot_rows(body), strict=True)
         return num(held.price_usd) if held else None
     if entry["rail"] == "stock":
         held = stock_row(entry["label"], stock_rows(body))
@@ -569,13 +569,18 @@ def perp_rows(body):
     return [bevo.PerpPosition(row) for row in (perps.get("positions") or [])]
 
 
-def held_row(ref, chain, rows):
+def held_row(ref, chain, rows, strict=False):
     """The owner's holding of one token. None = not held, False = unreadable.
 
     Three rules, each of them a real sell of the wrong thing: an EVM address
     matches case-insensitively and a Solana mint does NOT; a chain that was
     asked for filters the candidates; and among the survivors the LARGEST
     balance wins rather than whichever row the portfolio listed first.
+
+    `strict` is for the copy's own lot: only its chain counts, so a copy the
+    owner sold by hand is never refilled from their lot on another chain, and
+    a symbol two tokens on that chain share is False (cannot be told apart),
+    never the larger of the two.
     """
     if rows is None:
         return False
@@ -593,10 +598,13 @@ def held_row(ref, chain, rows):
     matches = [row for row in rows if names(row)]
     if chain is not None:
         on_chain = [row for row in matches if row.chain_id == chain]
-        if on_chain:
+        if on_chain or strict:
             matches = on_chain
     if not matches:
         return None
+    by_symbol = not (EVM_ADDRESS.match(text) or SOLANA_ADDRESS.match(text))
+    if strict and by_symbol and len({(row.address or "").lower() for row in matches}) > 1:
+        return False
     return max(matches, key=lambda row: row.amount or 0)
 
 
@@ -671,10 +679,10 @@ def spot_sell(ev, key):
     fresh = ready_to_unwind(poskey)
     entry = BOOK["pos"][poskey]
     share = share_sold(ev, entry, num(ev.amount_in), False)
-    held = held_row(entry.get("addr") or ref, entry.get("chain"), spot_rows(fresh.get()))
+    held = held_row(entry.get("addr") or ref, entry.get("chain"), spot_rows(fresh.get()), strict=True)
     if held is False:
         save()
-        return skip("could not read your holdings, so %s was not sized" % ref)
+        return skip("could not read your holdings, or tell your %s on that chain apart, so it was not sized" % ref)
     holding = (held.amount or 0) if held else 0
     # Shrink only: what the owner sold by hand is gone from the copy too.
     entry["units"] = min(entry["units"], holding)
@@ -1068,6 +1076,13 @@ def burst(batch):
                 continue
 
         key = key_for(ev, route)
+        if key not in BOOK["legs"] and str(ev.id) in BOOK["seen"]:
+            # Handled once already. Its route can differ now (a flip that
+            # closed the copy reads as an open the second time), and one
+            # leader event never becomes a second, different order.
+            skipped += 1
+            say("skipped %s: already handled" % (ev.id,))
+            continue
         if key in BOOK["legs"]:
             result = again(key)
         else:
