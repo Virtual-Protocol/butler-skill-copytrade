@@ -1,5 +1,28 @@
 # Changelog
 
+## 15.0.0
+
+**The copy note reads as a message to the owner.** It read as a log line for the agent:
+`copy-craymel: Buy 0x0b3e…7e1b — waiting for your owner's approval; Buy 0x0b3e… — waiting for
+your owner's approval` — the duty's slug in front, a raw contract address for the token, "your
+owner's" addressed to the reader who IS the owner, and every trade of a burst on one line.
+
+- One line per trade, no duty name in front (the duty's chat already names it):
+  `Buy $3 of $VIRTUAL — waiting for your approval`.
+- The token is `$TICKER`, which the app renders as a chip that opens the token's card. A
+  symbol a chip cannot hold is written as plain words; with no symbol the address is
+  shortened (`0x0b3e…7e1b`), never written whole. The symbol is the leader's token's, so
+  everything but word characters, spaces, `.` and `-` is stripped: it cannot form markdown.
+- Each line carries the amount: `Buy $3 of $VIRTUAL`, `Sell 19.2308 $VIRTUAL`,
+  `Long $25 of $BTC at 5x`, `Close $12.50 of $BTC long`, `Sell 0.5 shares of $AAPL`.
+- Outcomes read `done`, `placed` and `waiting for your approval`. Skipped trades are one
+  line, `Didn't copy 2 other trades`, instead of "see duty_logs"; why stays in the log.
+- `recipe.json` goes to version 15 and supersedes `copytrade@14`.
+
+**Upgrading:** a duty already filed keeps its stored code, and a template with money keys is
+never force-updated; re-file it (ask Butler to update the duty to the latest copytrade) to
+pick this up. A leg already in the book when it upgrades keeps its old wording if redelivered.
+
 ## 14.0.0
 
 **The duty sells and closes only what it copied.** It traded in the owner's own wallet
