@@ -1,5 +1,27 @@
 # Changelog
 
+## 16.0.0
+
+**A trade the server turned away as "key already used" no longer counts another order as the
+copy.** bevo-server answers a key it already holds for a different order with
+`IDEMPOTENCY_KEY_REUSED`: nothing was filed. The duty took that for an ordinary refusal and then
+asked the ledger about the key, which describes the earlier order. An earlier buy that ran was
+counted as this copy, so a later exit could sell tokens the duty never bought; an earlier sell
+that ran kept this sell's units out of the copy although they were never sold; and every
+redelivery of the leader's trade sent the key again.
+
+- On a trade's first send, the order under the key is not this copy's: the trade is not placed,
+  a buy is not counted, and a sell's units stay in the copy. The earlier order's outcome is never
+  read as this one's.
+- On a resend (the leader's trade redelivered after a restart), the order under the key is this
+  copy's own first send: the ledger settles it as before, and it is never sent again.
+- `acp` prints every 409 as `status: "conflict"`, so the answer is told by its `code`.
+- `recipe.json` goes to version 16 and supersedes `copytrade@15`.
+
+**Upgrading:** a duty already filed keeps its stored code, and a template with money keys is
+never force-updated; re-file it (ask Butler to update the duty to the latest copytrade) to
+pick this up.
+
 ## 15.0.0
 
 **The copy note reads as a message to the owner.** It read as a log line for the agent:
