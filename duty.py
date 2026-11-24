@@ -127,7 +127,7 @@ def open_book():
                                        leaderUnits}},
      "legs": {"<idempotency key>": {pos, rail, label, side, dir, usd, price,
                                     lead, units, args, sentence, at, checked,
-                                    done}},
+                                    done, reused}},
      "seen": {"<leader event id>": epoch}}
 
     `units` is what this duty holds of the copy; `leaderUnits` what the leader
@@ -456,6 +456,12 @@ def token_ref(value):
     return text.lstrip("$").upper()
 
 
+#: bevo-server's 409 for a key it already holds for a DIFFERENT order: this
+#: send filed nothing. `acp` prints a 409 as `status: "conflict"`, never
+#: "refused", so the code is the only thing that tells it from the other 409s.
+KEY_REUSED = "IDEMPOTENCY_KEY_REUSED"
+
+
 def answer_of(text):
     """The JSON `acp` printed, or None.
 
@@ -493,8 +499,14 @@ def filed(args, key, sentence, leg=None):
     An unparseable answer is `unknown_outcome`, never "refused": the request
     may have landed. `bevo.exec_status(key)` is the one way to find out, and
     re-running with a NEW key is how one trade becomes two.
+
+    A key the server says already names a different order (`KEY_REUSED`)
+    filed nothing. On a leg's first send that order is not the leg's — see
+    `booked()` — and the leg is not placed; on a resend it is the leg's own
+    first send, already told, so there is nothing new to say.
     """
-    if leg is not None and key not in BOOK["legs"]:
+    first = leg is not None and key not in BOOK["legs"]
+    if first:
         now = time.time()
         leg.update(args=list(args), sentence=sentence, at=now, checked=now, done=False)
         BOOK["legs"][key] = leg
@@ -512,13 +524,17 @@ def filed(args, key, sentence, leg=None):
         check=False,
     )
     answer = answer_of(done.stdout)
-    booked(key, answer)
+    booked(key, answer, first)
     if answer is None:
         state = (bevo.exec_status(key) or {}).get("state")
         return False, (
             "%s — outcome UNKNOWN, the rail said nothing readable (exec_status: %s). "
             "Never re-run this with a new key." % (sentence, state)
         )
+    if answer.get("code") == KEY_REUSED:
+        if first:
+            return False, "%s — not placed: its key already names a different order" % sentence
+        return True, None
     if answer.get("replay"):
         # The ledger already had this key: a redelivered leader event, answered
         # from the first send. Nothing new was filed, and the owner was told
@@ -539,12 +555,20 @@ def filed(args, key, sentence, leg=None):
     return False, "%s — refused: %s" % (sentence, answer.get("error") or answer.get("status"))
 
 
-def booked(key, answer):
+def booked(key, answer, first=False):
     """What an answer settles in the book now; everything else waits for the
     ledger. Only a refusal the server stated is dropped, and only `executed`
     is counted — never `replay`: the unreachable path answers `replay: true,
     executed: true` the first time it sees a key, so the leg's own record is
     the one thing that knows whether it was already counted.
+
+    `KEY_REUSED` filed nothing, and the ledger row under the key is the
+    earlier order's. On the leg's FIRST send that order is not this leg's —
+    this book never sent the key — so the leg is dropped (a sell's units come
+    back) and that row is never read as this leg's: an executed one would
+    count a buy this duty never placed. On a RESEND it is this leg's own first
+    send, which the server no longer matches to the same argv: the leg waits
+    for the ledger as before, and `again()` never sends it a third time.
     """
     leg = BOOK["legs"].get(key)
     if not leg or leg.get("done") or answer is None:
@@ -552,7 +576,12 @@ def booked(key, answer):
     # A 5xx is `refused` on the wire too, but the server may have filed it
     # before failing: that one waits for the ledger like any other unknown.
     server_error = (num(answer.get("httpStatus")) or 0) >= 500
-    if answer.get("ok") is False and answer.get("status") == "refused" and not server_error:
+    if answer.get("code") == KEY_REUSED:
+        if first:
+            resolve(key, "dropped", None)
+        else:
+            leg["reused"] = True
+    elif answer.get("ok") is False and answer.get("status") == "refused" and not server_error:
         resolve(key, "dropped", None)
     elif answer.get("executed"):
         resolve(key, "executed", Fresh())
@@ -1062,9 +1091,10 @@ def again(key):
     """A leader event whose leg is already in the book: redelivered after a
     restart. Re-sent with the same argv and key, so the ledger answers it as
     the replay it is — never re-sized off a copy the first send already
-    reserved from."""
+    reserved from. A leg whose resend was answered `KEY_REUSED` is not sent
+    again: only the ledger settles it now (`recheck()`)."""
     leg = BOOK["legs"][key]
-    if leg.get("done"):
+    if leg.get("done") or leg.get("reused"):
         return True, None
     return filed(leg["args"], key, leg["sentence"])
 

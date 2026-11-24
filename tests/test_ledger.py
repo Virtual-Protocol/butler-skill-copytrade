@@ -51,6 +51,10 @@ VIRTUAL = "0x0b3e328455c4059eeb9e3f84b5543f74e24e7e1b"
 ACCEPTED = {"status": "accepted", "ok": True}
 ASKED = {"status": "manual_signing_required", "ok": True, "asked": True}
 REFUSED = {"status": "refused", "ok": False, "error": "pocket_empty"}
+# A key bevo-server already holds for a different order. `acp` prints every 409
+# as "conflict", so only the code tells this one apart.
+REUSED = {"status": "conflict", "ok": False, "code": "IDEMPOTENCY_KEY_REUSED", "httpStatus": 409,
+          "error": "This idempotency key was already used for a different request"}
 
 
 def key(kind, event_id):
@@ -405,3 +409,42 @@ def test_tag_names_a_token_without_its_address(symbol, ref, expected):
 def test_money_reads_like_a_price():
     assert duty.money(3) == "$3"
     assert duty.money(2.5) == "$2.50"
+
+
+# ── a key that already names another order ───────────────────────────────────
+
+
+def test_a_buy_whose_key_names_another_order_is_never_counted(world, monkeypatch):
+    # This book never sent the key, so the order on file under it is not this
+    # buy: its ledger row is never read as this buy's, and the key is not resent.
+    world.answers[key("trade", 1)] = REUSED
+    world.fates[key("trade", 1)] = "executed"
+    duty.burst([buy(1)])
+    later(monkeypatch, [buy(1)])
+    assert units(SPOT) == 0
+    assert len(world.calls) == 1
+
+
+def test_a_sell_whose_key_names_another_order_keeps_its_units(world, monkeypatch):
+    copied_virtual(world, monkeypatch, amount_out=100, fill=2.5)
+    world.answers[key("trade", 2)] = REUSED
+    world.fates[key("trade", 2)] = "executed"  # the other order's row
+    duty.burst([sell(2, amount_in=40)])
+    later(monkeypatch, [sell(2, amount_in=40)])
+    assert units(SPOT) == pytest.approx(10)
+    assert len(world.calls) == 1
+
+
+def test_a_resend_answered_reused_is_settled_by_the_ledger_and_never_sent_again(world, monkeypatch):
+    # The first send is on file; the server no longer matches the resend to it.
+    world.answers[key("trade", 1)] = ASKED
+    world.fates[key("trade", 1)] = "approval"
+    duty.burst([buy(1)])
+    world.answers[key("trade", 1)] = REUSED
+    later(monkeypatch, [buy(1)])
+    later(monkeypatch, [buy(1)])
+    assert len(world.calls) == 2
+    assert units(SPOT) == 0
+    world.fates[key("trade", 1)] = "executed"
+    later(monkeypatch)
+    assert units(SPOT) == pytest.approx(25 / 1.3)

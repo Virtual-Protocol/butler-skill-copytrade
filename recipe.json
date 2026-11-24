@@ -1,6 +1,6 @@
 {
   "id": "copytrade",
-  "version": 15,
+  "version": 16,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": [
     "copy",
@@ -26,7 +26,8 @@
     "copytrade@11",
     "copytrade@12",
     "copytrade@13",
-    "copytrade@14"
+    "copytrade@14",
+    "copytrade@15"
   ],
   "keys": [
     "copy:<duty>:trade:<eventId>",
