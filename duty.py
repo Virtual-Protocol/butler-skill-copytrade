@@ -593,6 +593,16 @@ def refused(sentence, why):
     return False, "%s — refused: %s" % (sentence, why)
 
 
+def not_copied(sentence, why, floor=None):
+    """A copy this duty chose not to place: the owner is told, and it is not a
+    failure. `floor` is the minimum it fell under, when that is the reason."""
+    return "not_copied", ("%s — not copied: %s" % (sentence, why), floor)
+
+
+def under_minimum(sentence, floor):
+    return not_copied(sentence, "under the %s minimum" % money(floor), floor)
+
+
 # ── reading the owner's own book ─────────────────────────────────────────────
 
 
@@ -709,7 +719,7 @@ def spot_buy(ev, usd, key):
     ref = token_ref(ev.asset.ref)
     sentence = "Buy %s of %s" % (money(usd), tag(ev.asset.symbol, ref))
     if usd < SPOT_MIN_USD:
-        return refused(sentence, "spot buys are $%s minimum, got $%s" % (fmt(SPOT_MIN_USD), fmt(usd)))
+        return under_minimum(sentence, SPOT_MIN_USD)
     chain = ev.asset.chain_id
     args = ["--token-in", "usdc", "--amount-in", fmt(usd), "--token-out", ref]
     if chain is not None:
@@ -781,15 +791,16 @@ def leverage_for(ev):
 def perp_open(ev, usd, key):
     """`usd` is NOTIONAL — what `--amount-usdc` means on the perp rail.
 
-    Refused against an open position of the owner's on the other side: the
+    Not copied against an open position of the owner's on the other side: the
     venue nets one account per coin, so the copy would shrink the owner's own
-    position instead of opening one.
+    position instead of opening one. A copy it chose not to place is told in
+    the note, and is not a failure.
     """
     ref = token_ref(ev.coin)
     side = "short" if ev.is_short else "long"
     sentence = "%s %s" % (side.capitalize(), ref)
     if usd < PERP_MIN_USD:
-        return refused(sentence, "perps are $%s minimum, got $%s" % (fmt(PERP_MIN_USD), fmt(usd)))
+        return under_minimum("%s %s of %s" % (side.capitalize(), money(usd), tag(ref)), PERP_MIN_USD)
     lev, asked, why = leverage_for(ev)
     if why:
         return refused(sentence, why)
@@ -797,8 +808,10 @@ def perp_open(ev, usd, key):
     if position is False:
         return refused(sentence, "could not read your perp account")
     if position is not None and str(position.side or "").lower() != side:
-        return refused(sentence, "you hold a %s %s position of your own; copying the %s would net against it" % (
-            str(position.side or "sideless").lower(), ref, side))
+        return not_copied(
+            "%s %s of %s" % (side.capitalize(), money(usd), tag(ref)),
+            "you hold a %s %s position of your own, and the copy would net against it" % (
+                str(position.side or "sideless").lower(), ref))
     poskey = perp_key(leader_of(ev), ref)
     entry = entry_for(poskey, "perp", ref, side=side)
     if not live(poskey):
@@ -902,7 +915,7 @@ def stock_buy(ev, usd, key):
     ref = token_ref(raw)
     floor = stock_floor(ref)
     if usd < floor:
-        return refused(sentence, "%s buys are $%s minimum, got $%s" % (ref, fmt(floor), fmt(usd)))
+        return under_minimum("Buy %s of %s" % (money(usd), tag(ref)), floor)
     poskey = stock_key(leader_of(ev), ref)
     entry_for(poskey, "stock", ref)
     args = ["--token", ref, "--amount-usdc", fmt(usd)]
@@ -1106,6 +1119,19 @@ VERBS = {
 }
 
 
+def copy_label(ev, route):
+    """The ticker the owner knows, never the address behind it, and the verb."""
+    verb = VERBS.get(route, "trade")
+    if route == "perp-open":
+        verb = "short" if ev.is_short else "long"
+    # A perp close is neither a buy nor a sell, so `asset` reads the
+    # wrong leg; the coin is on whichever side carries a symbol.
+    coin = ev.asset.symbol or ev.token_out or ev.token_in
+    if route == "spot-sell":
+        coin = ev.token_in or coin
+    return "%s %s" % (coin, verb) if coin else "a %s" % verb
+
+
 def burst(batch):
     """One burst of leader trades, start to finish."""
     del BURST_KEYS[:]
@@ -1116,6 +1142,9 @@ def burst(batch):
     skipped = 0
     failed = 0
     last_copied = None
+    last_failed = None
+    declined = False
+    under_min = None
     asked = False
     for raw in batch:
         ev = bevo.typed(raw)
@@ -1163,24 +1192,23 @@ def burst(batch):
         if ok == "skip":
             skipped += 1
             say("skipped %s: %s" % (ev.id, summary))
+        elif ok == "not_copied":
+            line, floor = summary
+            told.append(line)
+            say("not copied %s: %s" % (ev.id, line))
+            declined = True
+            if floor is not None:
+                under_min = (copy_label(ev, route), int(floor) if float(floor) == int(floor) else floor)
         elif ok and summary is None:
             say("skipped %s: already filed (replay of %s)" % (ev.id, key))
         elif ok:
             told.append(summary)
-            # The ticker the owner knows, never the address behind it.
-            verb = VERBS.get(route, "trade")
-            if route == "perp-open":
-                verb = "short" if ev.is_short else "long"
-            # A perp close is neither a buy nor a sell, so `asset` reads the
-            # wrong leg; the coin is on whichever side carries a symbol.
-            coin = ev.asset.symbol or ev.token_out or ev.token_in
-            if route == "spot-sell":
-                coin = ev.token_in or coin
-            last_copied = "%s %s" % (coin, verb) if coin else "a %s" % verb
+            last_copied = copy_label(ev, route)
             asked = asked or "approval" in summary
         else:
             skipped += 1
             failed += 1
+            last_failed = copy_label(ev, route)
             say("skipped %s: %s" % (ev.id, summary))
 
     settle(list(BURST_KEYS), SETTLE_WAIT_S, Fresh())
@@ -1193,8 +1221,10 @@ def burst(batch):
     elif last_copied:
         bevo.status("copied", what=last_copied)
     elif failed:
-        bevo.status("failed")
-    elif skipped:
+        bevo.status("failed", what=last_failed)
+    elif under_min:
+        bevo.status("small", what=under_min[0], min=under_min[1])
+    elif skipped or declined:
         bevo.status("skipped")
 
     # One note per burst, and only when something actually happened. A duty

@@ -1,6 +1,6 @@
 {
   "id": "copytrade",
-  "version": 16,
+  "version": 17,
   "description": "Copy another trader's moves, on your own size.",
   "keywords": [
     "copy",
@@ -27,7 +27,8 @@
     "copytrade@12",
     "copytrade@13",
     "copytrade@14",
-    "copytrade@15"
+    "copytrade@15",
+    "copytrade@16"
   ],
   "keys": [
     "copy:<duty>:trade:<eventId>",
@@ -152,7 +153,8 @@
     "copied": "Copied {what}",
     "approval": "Copy awaits your approval",
     "skipped": "Last trade not copied",
-    "failed": "Last copy failed"
+    "small": "Skipped {what}: under the ${min} minimum",
+    "failed": "Couldn't copy {what}"
   },
   "notes": {
     "tracking": {

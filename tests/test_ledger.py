@@ -363,6 +363,17 @@ def notes():
     return [a["text"] for a in bevo.RECORDED_ACTIONS if a["call"] == "notify"]
 
 
+def test_a_copy_under_the_perp_minimum_is_told_as_skipped_not_failed(world, monkeypatch):
+    del bevo.RECORDED_ACTIONS[:]
+    monkeypatch.setattr(duty, "SIZE_USD", 2)
+    duty.burst([perp(1, "BTC", "long")])
+    assert world.calls == []
+    assert notes() == ["Long $2 of $BTC — not copied: under the $15 minimum"]
+    last = bevo.STATUS_REPORTS[-1]
+    assert last["state"] == "small"
+    assert last["values"] == {"what": "BTC long", "min": 15}
+
+
 def test_a_burst_note_is_one_line_per_trade_with_ticker_and_amount(world):
     del bevo.RECORDED_ACTIONS[:]
     world.answers[key("trade", 1)] = ASKED
