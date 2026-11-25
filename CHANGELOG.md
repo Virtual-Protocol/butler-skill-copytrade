@@ -1,5 +1,25 @@
 # Changelog
 
+## 17.0.0
+
+**A copy under the venue's minimum is told as skipped, not shown as a failure.** A $2 copy of a
+leader's SOL perp open was rightly not placed (Hyperliquid perps start at $15), but the duty's
+row read "Last copy failed" with no reason and nothing appeared in its Activity: the leg counted
+as a failure, and a trade that was skipped never reached the burst's note.
+
+- A spot buy under $2, a perp open under $15 and a stock buy under its floor are now "not
+  copied": the note says so (`Long $2 of $SOL — not copied: under the $15 minimum`), which is the
+  Activity row.
+- The row reads "Skipped SOL long: under the $15 minimum". A copy that really failed reads
+  "Couldn't copy SOL long".
+- A perp open skipped because the owner holds the other side of that coin is told the same way.
+- Unreadable perp account, bad leverage, a stock named by address and the like stay failures.
+- `recipe.json` goes to version 17 and supersedes `copytrade@16`.
+
+**Upgrading:** a duty already filed keeps its stored code, and a template with money keys is
+never force-updated; re-file it (ask Butler to update the duty to the latest copytrade) to
+pick this up.
+
 ## 16.0.0
 
 **A trade the server turned away as "key already used" no longer counts another order as the
